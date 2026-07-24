@@ -21,6 +21,7 @@ mod route;
 mod router;
 mod serve;
 mod service;
+mod static_export;
 #[cfg(feature = "tower")]
 pub mod tower;
 
@@ -44,5 +45,6 @@ pub use route::*;
 pub use router::*;
 pub use serve::*;
 pub use service::*;
+pub use static_export::*;
 
 pub use http::{HeaderMap, HeaderName, HeaderValue, Method, StatusCode, Uri, header};

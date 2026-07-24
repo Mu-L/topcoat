@@ -11,10 +11,18 @@ The macro takes comma-separated `key = value` attributes, each at most once:
 - `kind = Group`: no URL segment, though the module can still hold shared layouts and layers; the default for `_`-prefixed modules.
 - `kind = Param`: a dynamic `{name}` parameter, matching one segment.
 - `kind = CatchAll`: a wildcard `{*name}` tail, matching all remaining segments.
+- `generate_static = function`: enumerates this dynamic segment during a static export.
 
 A `Param` or `CatchAll` segment without a `rename` is named after the module, as-is. Declaring a [`#[path_param]`](attr.path_param.html) in a module emits `segment!(kind = Param, rename = ...)` automatically, so do not also call `segment!` in that module. A manual `Param` or `CatchAll` declaration creates a captured segment but no typed accessor; read it through [`raw_path_params`](fn.raw_path_params.html).
 
 A `CatchAll` matches one or more remaining URL segments, including `/` separators, and must be the last served segment in the path.
+
+`generate_static` requires `kind = Param` or `kind = CatchAll`. A `Param`
+generator is an async function taking `&Cx` and returning
+`Result<Vec<String>>`. A `CatchAll` generator returns
+`Result<Vec<Vec<String>>>`, where every inner vector is one non-empty sequence
+of path components. A child generator's context contains the concrete ancestor
+path and its generated path parameters.
 
 # Examples
 
@@ -41,4 +49,19 @@ topcoat::router::segment!(kind = Param);
 ```rust
 // src/app/docs/rest.rs: pages in this module serve `/docs/{*path}`.
 topcoat::router::segment!(kind = CatchAll, rename = "path");
+```
+
+Static parameter:
+
+```rust
+# use topcoat::{Result, context::Cx};
+async fn generate_ids(_cx: &Cx) -> Result<Vec<String>> {
+    Ok(vec!["one".into(), "two".into()])
+}
+
+topcoat::router::segment!(
+    kind = Param,
+    rename = "id",
+    generate_static = generate_ids,
+);
 ```

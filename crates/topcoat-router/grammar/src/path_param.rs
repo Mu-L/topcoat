@@ -2,28 +2,79 @@ use heck::ToSnakeCase;
 use proc_macro2::TokenStream;
 use quote::{ToTokens, quote};
 use syn::{
-    Data, DeriveInput, Fields, Type,
+    Data, DeriveInput, Fields, Path, Token, Type,
     parse::{Parse, ParseStream},
 };
 use topcoat_core_grammar::paths::{
-    topcoat_context, topcoat_context_macro, topcoat_router, topcoat_router_macro,
+    topcoat_context, topcoat_context_macro, topcoat_error, topcoat_router, topcoat_router_macro,
 };
 
 use super::error_attr::ErrorAttr;
 
 pub struct PathParamAttr {
     error: Option<ErrorAttr>,
+    generate_static: Option<Path>,
 }
 
 impl Parse for PathParamAttr {
     fn parse(input: ParseStream) -> syn::Result<Self> {
+        let attrs = input.parse_terminated(PathParamAttrItem::parse, Token![,])?;
+        let mut error = None;
+        let mut generate_static = None;
+        for attr in attrs {
+            match attr {
+                PathParamAttrItem::Error(value) => {
+                    if error.replace(value).is_some() {
+                        return Err(syn::Error::new(
+                            proc_macro2::Span::call_site(),
+                            "duplicate attribute `error`",
+                        ));
+                    }
+                }
+                PathParamAttrItem::GenerateStatic { value, .. } => {
+                    if generate_static.replace(value).is_some() {
+                        return Err(syn::Error::new(
+                            proc_macro2::Span::call_site(),
+                            "duplicate attribute `generate_static`",
+                        ));
+                    }
+                }
+            }
+        }
         Ok(Self {
-            error: if input.is_empty() {
-                None
-            } else {
-                Some(input.parse()?)
-            },
+            error,
+            generate_static,
         })
+    }
+}
+
+mod kw {
+    syn::custom_keyword!(generate_static);
+}
+
+#[allow(dead_code, reason = "tokens are retained for parsing diagnostics")]
+enum PathParamAttrItem {
+    Error(ErrorAttr),
+    GenerateStatic {
+        generate_static_kw: kw::generate_static,
+        eq_token: Token![=],
+        value: Path,
+    },
+}
+
+impl Parse for PathParamAttrItem {
+    fn parse(input: ParseStream) -> syn::Result<Self> {
+        if ErrorAttr::peek(input) {
+            Ok(Self::Error(input.parse()?))
+        } else if input.peek(kw::generate_static) {
+            Ok(Self::GenerateStatic {
+                generate_static_kw: input.parse()?,
+                eq_token: input.parse()?,
+                value: input.parse()?,
+            })
+        } else {
+            Err(input.lookahead1().error())
+        }
     }
 }
 
@@ -88,6 +139,14 @@ impl PathParam {
                      which borrows the raw segment and cannot fail",
             ));
         }
+        if let Some(generate_static) = &attr.generate_static
+            && !item.item.generics.params.is_empty()
+        {
+            return Err(syn::Error::new_spanned(
+                generate_static,
+                "`generate_static` cannot be used on a generic path parameter",
+            ));
+        }
         Ok(Self(attr, item))
     }
 
@@ -124,6 +183,46 @@ impl ToTokens for PathParam {
         let inner_ty = &self.1.inner_ty;
         let name_string = ident.to_string().to_snake_case();
         let (impl_generics, ty_generics, where_clause) = item.generics.split_for_impl();
+        let static_segment = self
+            .0
+            .generate_static
+            .as_ref()
+            .filter(|_| cfg!(feature = "discover"))
+            .map(|generate_static| {
+                let convert = if borrows_raw_segment {
+                    quote! {
+                        let values: ::std::vec::Vec<::std::string::String> =
+                            #generate_static(cx).await?;
+                        Ok(values)
+                    }
+                } else {
+                    quote! {
+                        let values: ::std::vec::Vec<#inner_ty> = #generate_static(cx).await?;
+                        Ok(values
+                            .into_iter()
+                            .map(|value| ::std::string::ToString::to_string(&value))
+                            .collect())
+                    }
+                };
+                quote! {
+                    async fn __topcoat_generate_static(
+                        cx: &#topcoat_context::Cx,
+                    ) -> #topcoat_error::Result<::std::vec::Vec<::std::string::String>> {
+                        #convert
+                    }
+
+                    #topcoat_router_macro::segment!(
+                        kind = Param,
+                        rename = #name_string,
+                        generate_static = __topcoat_generate_static,
+                    );
+                }
+            });
+        let static_segment = static_segment.unwrap_or_else(|| {
+            quote! {
+                #topcoat_router_macro::segment!(kind = Param, rename = #name_string);
+            }
+        });
 
         let (output_ty, path_param_fn) = if borrows_raw_segment {
             (
@@ -189,7 +288,7 @@ impl ToTokens for PathParam {
                 #path_param_fn
             }
 
-            #topcoat_router_macro::segment!(kind = Param, rename = #name_string);
+            #static_segment
         }
         .to_tokens(tokens);
     }

@@ -7,7 +7,8 @@ use topcoat_core::context::{ContextMap, CxBuilder};
 
 use crate::{
     Endpoint, Layer, LayerId, Layers, LayoutFn, Methods, Next, PageFn, PageWithLayouts,
-    PathSegment, RawPathParams, Request, Response, Route, Terminal, error::respond,
+    PathSegment, RawPathParams, Request, Response, Route, StaticExportMarker, StaticFile,
+    StaticPage, Terminal, error::respond,
 };
 
 /// A finalized Topcoat routing table.
@@ -40,7 +41,11 @@ pub struct Router {
     layers: Layers,
     /// The values shared by every request, read back via
     /// [`app_context`](topcoat_core::context::app_context).
-    app_context: Arc<ContextMap>,
+    pub(crate) app_context: Arc<ContextMap>,
+    /// The GET pages that can be selected for a static export.
+    pub(crate) static_pages: Vec<StaticPage>,
+    /// Files copied verbatim into a static export.
+    pub(crate) static_files: Vec<StaticFile>,
     /// The compression applied to responses on their way out.
     #[cfg(feature = "compression")]
     compression: crate::Compression,
@@ -62,6 +67,7 @@ impl Router {
     /// header) when the path matches but no route accepts the method.
     pub async fn handle(&self, request: Request) -> Response {
         let (parts, body) = request.into_parts();
+        let static_export = parts.extensions.get::<StaticExportMarker>().copied();
 
         // Resolve the layer stack and the chain's terminal. A matched path
         // reuses its endpoint's precomputed layer stack, whether the method
@@ -95,6 +101,9 @@ impl Router {
         let mut cx = CxBuilder::new(self.app_context.clone());
         cx.insert(path_params);
         cx.insert(parts);
+        if let Some(static_export) = static_export {
+            cx.insert(static_export);
+        }
 
         let next = Next::new(&self.layers, layers, terminal);
         let response = next.run(&mut cx, body).await;
@@ -150,6 +159,7 @@ pub struct RouterBuilder {
     layouts: Vec<LayoutFn>,
     layers: Layers,
     context: ContextMap,
+    static_files: Vec<StaticFile>,
     #[cfg(feature = "compression")]
     compression: crate::Compression,
 }
@@ -167,6 +177,7 @@ impl RouterBuilder {
             layouts: Vec::new(),
             layers: Layers::default(),
             context,
+            static_files: Vec::new(),
             #[cfg(feature = "compression")]
             compression: crate::Compression::new(),
         }
@@ -211,6 +222,22 @@ impl RouterBuilder {
     #[must_use]
     pub fn page(mut self, page: impl Into<PageFn>) -> Self {
         self.pages.push(page.into());
+        self
+    }
+
+    /// Registers a file to copy verbatim into a static export.
+    ///
+    /// Router integrations such as Topcoat assets use this alongside their
+    /// HTTP routes so the same public URL is available without a server.
+    #[doc(hidden)]
+    #[must_use]
+    pub fn static_file(
+        mut self,
+        url_path: impl Into<String>,
+        source_path: impl Into<std::path::PathBuf>,
+    ) -> Self {
+        self.static_files
+            .push(StaticFile::new(url_path, source_path));
         self
     }
 
@@ -421,13 +448,26 @@ impl RouterBuilder {
             layouts,
             layers,
             context,
+            static_files,
             #[cfg(feature = "compression")]
             compression,
         } = self;
 
+        let mut static_pages = Vec::new();
+
         // Wire each page to the layouts whose path is a prefix of the page's,
         // ordered from least- to most-specific so the page nests innermost.
         for page in pages {
+            let serves_get = match page.methods() {
+                Methods::Any => true,
+                Methods::Only(methods) => methods.contains(&http::Method::GET),
+            };
+            if serves_get {
+                static_pages.push(StaticPage::new(
+                    page.path().to_owned(),
+                    page.static_source.clone(),
+                ));
+            }
             let mut matching: Vec<LayoutFn> = layouts
                 .iter()
                 .filter(|layout| page.path().starts_with(layout.path()))
@@ -526,6 +566,8 @@ impl RouterBuilder {
             endpoints,
             layers,
             app_context: Arc::new(context),
+            static_pages,
+            static_files,
             #[cfg(feature = "compression")]
             compression,
         }

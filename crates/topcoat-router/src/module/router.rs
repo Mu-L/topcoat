@@ -4,7 +4,7 @@ use heck::ToKebabCase;
 
 use crate::{
     ModuleLayerFn, ModuleLayoutFn, ModulePageFn, ModuleRouteFn, PathBuf, PathSegment,
-    RouterBuilder, Segment, SegmentKind, Segments,
+    RouterBuilder, Segment, SegmentKind, Segments, StaticPageSegment,
 };
 
 /// The module-based router builder, created by the `module_router!` macro.
@@ -82,11 +82,17 @@ impl ModuleRouterBuilder {
     /// segment overrides and defaults (kebab-case for static, `_` prefix for
     /// groups) to build the final route path.
     fn module_path_to_path(&self, module_path: &'static str) -> PathBuf {
+        self.resolve_module_path(module_path).0
+    }
+
+    /// Converts a module path to its route and static-expansion segments.
+    fn resolve_module_path(&self, module_path: &'static str) -> (PathBuf, Vec<StaticPageSegment>) {
         let relative = self.relative_module_path(module_path);
         let mut path_buf = PathBuf::new();
+        let mut static_segments = Vec::new();
 
         if relative.is_empty() {
-            return path_buf;
+            return (path_buf, static_segments);
         }
 
         // Iterate over the module structure. At each module level, check if there is a matching
@@ -129,8 +135,21 @@ impl ModuleRouterBuilder {
             };
 
             path_buf += path_segment;
+            let generator = segment.and_then(Segment::generate_static);
+            static_segments.push(match kind {
+                SegmentKind::Static => StaticPageSegment::Static(name.into_owned()),
+                SegmentKind::Group => StaticPageSegment::Group,
+                SegmentKind::Param => StaticPageSegment::Param {
+                    name: Cow::Owned(name.into_owned()),
+                    generator,
+                },
+                SegmentKind::CatchAll => StaticPageSegment::CatchAll {
+                    name: Cow::Owned(name.into_owned()),
+                    generator,
+                },
+            });
         }
-        path_buf
+        (path_buf, static_segments)
     }
 
     /// Registers a [`ModulePageFn`], computing its route path from the module path.
@@ -142,7 +161,8 @@ impl ModuleRouterBuilder {
     pub fn page(mut self, page: impl Into<ModulePageFn>) -> Self {
         let page = page.into();
         let module_path = page.module_path();
-        let page = page.into_page(Cow::Owned(self.module_path_to_path(module_path)));
+        let (path, static_segments) = self.resolve_module_path(module_path);
+        let page = page.into_page_with_static_segments(Cow::Owned(path), static_segments);
         self.inner = self.inner.page(page);
         self
     }
@@ -401,6 +421,7 @@ mod tests {
             "app::users::id",
             Some(SegmentKind::Param),
             None,
+            None,
         ));
         assert_eq!(
             builder.module_path_to_path("app::users::id").to_string(),
@@ -413,6 +434,7 @@ mod tests {
         let builder = builder_with(Segment::new(
             "app::files::rest",
             Some(SegmentKind::CatchAll),
+            None,
             None,
         ));
         assert_eq!(
@@ -427,6 +449,7 @@ mod tests {
             "app::marketing",
             Some(SegmentKind::Group),
             None,
+            None,
         ));
         let path = builder.module_path_to_path("app::marketing::pricing");
         assert_eq!(path.to_string(), "/(marketing)/pricing");
@@ -436,7 +459,12 @@ mod tests {
     #[test]
     fn override_kind_static_promotes_group_module() {
         // A `_`-prefixed module forced back to a static URL segment.
-        let builder = builder_with(Segment::new("app::_group", Some(SegmentKind::Static), None));
+        let builder = builder_with(Segment::new(
+            "app::_group",
+            Some(SegmentKind::Static),
+            None,
+            None,
+        ));
         assert_eq!(
             builder.module_path_to_path("app::_group").to_string(),
             "/group"
@@ -450,6 +478,7 @@ mod tests {
             "app::blog_post",
             None,
             Some("articles".into()),
+            None,
         ));
         assert_eq!(
             builder.module_path_to_path("app::blog_post").to_string(),
@@ -459,7 +488,12 @@ mod tests {
 
     #[test]
     fn override_applies_at_intermediate_segment() {
-        let builder = builder_with(Segment::new("app::users", Some(SegmentKind::Param), None));
+        let builder = builder_with(Segment::new(
+            "app::users",
+            Some(SegmentKind::Param),
+            None,
+            None,
+        ));
         assert_eq!(
             builder.module_path_to_path("app::users::posts").to_string(),
             "/{users}/posts"
@@ -474,6 +508,7 @@ mod tests {
         let _ = builder().page(page_at("app::home")).segment(Segment::new(
             "app::users",
             Some(SegmentKind::Param),
+            None,
             None,
         ));
     }

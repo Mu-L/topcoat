@@ -35,6 +35,11 @@ A page serves `GET` by default; naming methods before the path (`#[page(POST "/s
 
 See [`#[page]`](page) for the handler signature, module-derived paths, and using pages as components.
 
+Fixed GET pages are included in a [static export](mod@crate::export)
+automatically. An explicit dynamic path supplies complete parameter sets with
+`#[page("/users/{id}", generate_static = function)]`. Module-derived dynamic
+paths put their generators on `segment!` or `#[path_param]`.
+
 # Layouts
 
 A layout wraps pages. It receives the rendered inner page (or nested layout) as a `Result<View>`, to embed in its own view. Annotate it with [`#[layout]`](layout):

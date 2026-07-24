@@ -1,7 +1,7 @@
 use proc_macro2::TokenStream;
 use quote::{ToTokens, quote};
 use syn::{
-    ItemFn, LitStr, ReturnType, Visibility,
+    ItemFn, LitStr, Path, ReturnType, Token, Visibility,
     parse::{Parse, ParseStream},
     parse_quote,
     spanned::Spanned,
@@ -18,15 +18,34 @@ pub struct PageAttr {
     /// The declared HTTP methods; the page serves `GET` when omitted.
     methods: Option<Methods>,
     path: Option<LitStr>,
+    generate_static: Option<Path>,
 }
 
 impl Parse for PageAttr {
     fn parse(input: ParseStream) -> syn::Result<Self> {
+        let methods = Methods::parse_option(input)?;
+        let path = input.peek(LitStr).then(|| input.parse()).transpose()?;
+        let generate_static = if input.is_empty() {
+            None
+        } else {
+            input.parse::<Token![,]>()?;
+            input.parse::<kw::generate_static>()?;
+            input.parse::<Token![=]>()?;
+            Some(input.parse()?)
+        };
+        if !input.is_empty() {
+            return Err(input.error("unexpected page attribute argument"));
+        }
         Ok(Self {
-            methods: Methods::parse_option(input)?,
-            path: input.peek(LitStr).then(|| input.parse()).transpose()?,
+            methods,
+            path,
+            generate_static,
         })
     }
+}
+
+mod kw {
+    syn::custom_keyword!(generate_static);
 }
 
 pub struct PageItem {
@@ -57,9 +76,38 @@ impl Parse for PageItem {
 pub struct Page(PageAttr, PageItem);
 
 impl Page {
-    #[must_use]
-    pub fn new(attr: PageAttr, item: PageItem) -> Self {
-        Self(attr, item)
+    /// Combines a parsed attribute and page item.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when `generate_static` is used without a dynamic
+    /// explicit path or on a page that does not accept GET.
+    pub fn new(attr: PageAttr, item: PageItem) -> syn::Result<Self> {
+        if let Some(generate_static) = &attr.generate_static {
+            let Some(path) = &attr.path else {
+                return Err(syn::Error::new_spanned(
+                    generate_static,
+                    "`generate_static` on `#[page]` requires an explicit path",
+                ));
+            };
+            if !path.value().contains('{') {
+                return Err(syn::Error::new_spanned(
+                    generate_static,
+                    "`generate_static` requires a dynamic page path",
+                ));
+            }
+            if attr
+                .methods
+                .as_ref()
+                .is_some_and(|methods| !methods.contains("GET"))
+            {
+                return Err(syn::Error::new_spanned(
+                    generate_static,
+                    "`generate_static` requires a page that accepts GET",
+                ));
+            }
+        }
+        Ok(Self(attr, item))
     }
 
     /// Parses a page attribute and item from token streams.
@@ -70,7 +118,7 @@ impl Page {
     /// [`PageAttr`] or [`PageItem`], or if the item is not a valid page
     /// handler.
     pub fn parse(attr: TokenStream, item: TokenStream) -> syn::Result<Self> {
-        Ok(Self::new(syn::parse2(attr)?, syn::parse2(item)?))
+        Self::new(syn::parse2(attr)?, syn::parse2(item)?)
     }
 }
 
@@ -157,12 +205,32 @@ impl ToTokens for Page {
             ToTokens::to_token_stream,
         );
         let erased = if let Some(path) = attr.path.as_ref() {
+            let constructor = if let Some(generate_static) = attr.generate_static.as_ref() {
+                quote! {
+                    #topcoat_router::PageFn::const_new_with_static_params(
+                        #methods,
+                        ::std::borrow::Cow::Borrowed(#topcoat_router::Path::new(#path)),
+                        #render,
+                        #topcoat_router::StaticParamsGenerator::new(|cx| {
+                        ::std::boxed::Box::pin(async move {
+                            let values: ::std::vec::Vec<#topcoat_router::StaticParams> =
+                                #generate_static(cx).await?;
+                            Ok(values)
+                        })
+                        }),
+                    )
+                }
+            } else {
+                quote! {
+                    #topcoat_router::PageFn::const_new(
+                        #methods,
+                        ::std::borrow::Cow::Borrowed(#topcoat_router::Path::new(#path)),
+                        #render,
+                    )
+                }
+            };
             quote! {
-                const ERASED: #topcoat_router::PageFn = #topcoat_router::PageFn::const_new(
-                    #methods,
-                    ::std::borrow::Cow::Borrowed(#topcoat_router::Path::new(#path)),
-                    #render,
-                );
+                const ERASED: #topcoat_router::PageFn = #constructor;
 
                 impl ::core::convert::From<#ident> for #topcoat_router::PageFn {
                     fn from(_: #ident) -> Self {

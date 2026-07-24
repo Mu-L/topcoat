@@ -1,6 +1,8 @@
 use std::borrow::Cow;
 
-use crate::{LayoutFn, LayoutRenderFn, OwnedMethods, PageFn, PageRenderFn, Path};
+use crate::{
+    LayoutFn, LayoutRenderFn, OwnedMethods, PageFn, PageRenderFn, Path, StaticPageSegment,
+};
 
 /// A page discovered by the module router, produced by the `#[page]` macro.
 ///
@@ -36,6 +38,15 @@ impl ModulePageFn {
     #[must_use]
     pub fn into_page(self, path: Cow<'static, Path>) -> PageFn {
         PageFn::new(self.methods, path, self.render)
+    }
+
+    #[must_use]
+    pub(crate) fn into_page_with_static_segments(
+        self,
+        path: Cow<'static, Path>,
+        static_segments: Vec<StaticPageSegment>,
+    ) -> PageFn {
+        PageFn::new(self.methods, path, self.render).with_static_segments(static_segments)
     }
 
     /// Returns the module path used to derive the URL.

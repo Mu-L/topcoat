@@ -117,7 +117,10 @@ pub trait RouterBuilderAssetExt {
 impl RouterBuilderAssetExt for RouterBuilder {
     fn assets(mut self, bundle: AssetBundle) -> Self {
         for asset in bundle.assets() {
-            self = self.route(AssetRoute::new(asset));
+            let route = AssetRoute::new(asset);
+            self = self
+                .static_file(route.path().to_matchit_path(), asset.path())
+                .route(route);
         }
 
         self = self.app_context(bundle);

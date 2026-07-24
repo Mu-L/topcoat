@@ -77,6 +77,14 @@ pub async fn serve_until(
 /// Returns `Err` if `HOST`/`PORT` are invalid, if binding the TCP listener
 /// fails, or if serving the router fails (see [`serve`]).
 pub async fn start(service: impl Into<RouterService>) -> Result<(), io::Error> {
+    let service = service.into();
+    if let Some(config) = crate::export::config_from_env().map_err(io::Error::other)? {
+        crate::export(service, config)
+            .await
+            .map_err(io::Error::other)?;
+        return Ok(());
+    }
+
     let host = host_from_env()?;
     let port = port_from_env()?;
     let listener = TcpListener::bind((host.as_str(), port)).await?;

@@ -7,6 +7,9 @@ extern crate self as topcoat;
 pub mod dev;
 
 #[cfg(feature = "router")]
+pub mod export;
+
+#[cfg(feature = "router")]
 mod serve;
 
 pub use topcoat_core::error::Error;
@@ -41,6 +44,9 @@ pub mod router;
 
 #[cfg(feature = "view")]
 pub mod view;
+
+#[cfg(feature = "router")]
+pub use export::{ExportConfig, ExportError, ExportPathStyle, ExportReport, export};
 
 #[cfg(feature = "router")]
 pub use serve::{serve, serve_until, start};

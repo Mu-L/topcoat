@@ -56,6 +56,12 @@ impl RouterService {
         self.shutdown_timeout = timeout;
         self
     }
+
+    /// Returns the router wrapped by this service.
+    #[must_use]
+    pub fn router(&self) -> &Router {
+        &self.router
+    }
 }
 
 impl From<Router> for RouterService {

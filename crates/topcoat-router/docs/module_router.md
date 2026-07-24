@@ -183,7 +183,8 @@ async fn posts(cx: &Cx) -> Result {
 
 # Segment overrides
 
-`segment!(...)` changes the enclosing module's segment. It accepts `kind` and `rename`, each at most once:
+`segment!(...)` changes the enclosing module's segment. It accepts `kind`,
+`rename`, and `generate_static`, each at most once:
 
 | Declaration | Result |
 |---|---|
@@ -196,6 +197,43 @@ async fn posts(cx: &Cx) -> Result {
 `Static` is the default kind for regular modules. `Group` is the default for modules whose names start with `_`. A rename is used as written; Topcoat does not kebab-case it.
 
 `#[path_param]` emits a `Param` segment override, so do not combine it with `segment!` in the same module. A manual `Param` override creates the route capture but does not define a typed accessor.
+
+For static export, `generate_static` enumerates a dynamic segment:
+
+```rust
+# use topcoat::{Result, context::Cx};
+async fn generate_ids(_cx: &Cx) -> Result<Vec<String>> {
+    Ok(vec!["one".into(), "two".into()])
+}
+
+topcoat::router::segment!(
+    kind = Param,
+    rename = "id",
+    generate_static = generate_ids,
+);
+```
+
+`Param` generators return `Result<Vec<String>>`. `CatchAll` generators return
+`Result<Vec<Vec<String>>>`, where each inner vector is a non-empty sequence of
+path components.
+
+A typed `#[path_param]` can declare the generator directly. It returns values
+of the parameter's inner type:
+
+```rust
+# use topcoat::{Result, context::Cx, router::path_param};
+async fn generate_post_ids(_cx: &Cx) -> Result<Vec<u64>> {
+    Ok(vec![1, 2, 3])
+}
+
+#[path_param(generate_static = generate_post_ids)]
+struct PostId(u64);
+```
+
+Generators run from parent segments to child segments. The `Cx` passed to a
+child contains app context and its generated ancestor path parameters. A
+dynamic module page without a generator for every dynamic segment causes
+static export to fail.
 
 # Catch-all parameters
 
@@ -260,6 +298,10 @@ Group names remain part of Topcoat's logical paths. A layout or layer in `_marke
 # Explicit paths
 
 Adding a path string to `#[page]`, `#[layout]`, `#[layer]`, or `#[route]` disables module path derivation for that item. `segment!` declarations do not alter explicit paths.
+
+An explicit dynamic page also does not use module segment generators. Declare
+complete parameter sets on that page with
+`#[page("/posts/{post_id}", generate_static = function)]`.
 
 `module_router!()` discovers module-derived handlers. Register an explicit-path handler by name:
 

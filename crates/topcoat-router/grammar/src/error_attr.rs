@@ -31,6 +31,11 @@ pub struct ErrorAttr {
 }
 
 impl ErrorAttr {
+    /// Returns whether the input begins with an `error` argument.
+    pub fn peek(input: ParseStream) -> bool {
+        input.peek(kw::error)
+    }
+
     /// The span of the constructor name, for attaching validation errors.
     pub fn span(&self) -> Span {
         self.kind.keyword().span()

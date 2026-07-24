@@ -23,6 +23,18 @@ pub enum Methods {
     Any(Token![*]),
 }
 
+impl Methods {
+    /// Returns whether this declaration accepts `method`.
+    #[must_use]
+    pub fn contains(&self, method: &str) -> bool {
+        match self {
+            Self::Any(_) => true,
+            Self::One(value) => value == method,
+            Self::Set { items, .. } => items.iter().any(|value| value == method),
+        }
+    }
+}
+
 impl Parse for Methods {
     fn parse(input: ParseStream) -> syn::Result<Self> {
         let lookahead = input.lookahead1();

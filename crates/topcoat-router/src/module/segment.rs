@@ -1,5 +1,7 @@
 use std::{borrow::Cow, collections::HashMap};
 
+use crate::StaticSegmentGenerator;
+
 /// The kind of a module-router path segment, set via the `segment!` macro.
 ///
 /// When using the module router, each module maps to a URL segment. By default,
@@ -48,6 +50,8 @@ pub struct Segment {
     kind: Option<SegmentKind>,
     /// Overridden URL name, or `None` to derive from the module name.
     rename: Option<Cow<'static, str>>,
+    /// Generator used to enumerate this dynamic segment during static export.
+    generate_static: Option<StaticSegmentGenerator>,
 }
 
 impl Segment {
@@ -57,11 +61,13 @@ impl Segment {
         module_path: &'static str,
         kind: Option<SegmentKind>,
         rename: Option<Cow<'static, str>>,
+        generate_static: Option<StaticSegmentGenerator>,
     ) -> Self {
         Self {
             module_path,
             kind,
             rename,
+            generate_static,
         }
     }
 
@@ -81,6 +87,12 @@ impl Segment {
     #[must_use]
     pub fn rename(&self) -> Option<&str> {
         self.rename.as_deref()
+    }
+
+    /// Returns the static value generator declared for this segment.
+    #[must_use]
+    pub fn generate_static(&self) -> Option<StaticSegmentGenerator> {
+        self.generate_static
     }
 }
 
@@ -125,7 +137,7 @@ mod tests {
     use super::*;
 
     fn test_segment() -> Segment {
-        Segment::new("my_crate::test", Some(SegmentKind::Static), None)
+        Segment::new("my_crate::test", Some(SegmentKind::Static), None, None)
     }
 
     #[test]

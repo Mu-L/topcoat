@@ -4,7 +4,10 @@ use std::pin::Pin;
 use topcoat_core::{context::Cx, error::Result};
 use topcoat_view::View;
 
-use crate::{Body, IntoResponse, Methods, OwnedMethods, Path, Route, RouteFuture};
+use crate::{
+    Body, IntoResponse, Methods, OwnedMethods, Path, Route, RouteFuture, StaticPageSegment,
+    StaticPageSource, StaticParamsGenerator,
+};
 
 /// The async render function backing a [`PageFn`].
 pub type PageRenderFn = for<'cx> fn(
@@ -30,6 +33,8 @@ pub struct PageFn {
     path: Cow<'static, Path>,
     /// The async render function that produces the page [`View`].
     render: PageRenderFn,
+    /// The generator used to enumerate this page during a static export.
+    pub(crate) static_source: Option<StaticPageSource>,
 }
 
 impl PageFn {
@@ -56,7 +61,40 @@ impl PageFn {
             methods,
             path,
             render,
+            static_source: None,
         }
+    }
+
+    /// Attaches a complete static-parameter generator to an explicitly pathed
+    /// page.
+    #[doc(hidden)]
+    #[must_use]
+    pub fn with_static_params(mut self, generator: StaticParamsGenerator) -> Self {
+        self.static_source = Some(StaticPageSource::Explicit(generator));
+        self
+    }
+
+    /// Const-context constructor for a page carrying a complete static
+    /// parameter generator.
+    #[doc(hidden)]
+    pub const fn const_new_with_static_params(
+        methods: OwnedMethods,
+        path: Cow<'static, Path>,
+        render: PageRenderFn,
+        generator: StaticParamsGenerator,
+    ) -> Self {
+        Self {
+            methods,
+            path,
+            render,
+            static_source: Some(StaticPageSource::Explicit(generator)),
+        }
+    }
+
+    #[must_use]
+    pub(crate) fn with_static_segments(mut self, segments: Vec<StaticPageSegment>) -> Self {
+        self.static_source = Some(StaticPageSource::Module(segments));
+        self
     }
 
     /// Returns the HTTP methods this page responds to.

@@ -3,6 +3,7 @@
 mod asset;
 mod cargo;
 mod dev;
+mod export;
 mod fmt;
 mod ui;
 
@@ -21,6 +22,8 @@ enum Command {
     Dev(dev::DevCommand),
     /// Format topcoat `view!` macros
     Fmt(fmt::FmtCommand),
+    /// Build the application and export it as a static site
+    Export(export::ExportCommand),
     /// Inspect assets embedded in the binary
     Asset(asset::AssetCommand),
     /// Manage premade UI components in your project
@@ -33,6 +36,7 @@ pub async fn run() {
         Command::Ui(cmd) => cmd.run(),
         Command::Fmt(cmd) => cmd.run().await,
         Command::Dev(cmd) => cmd.run().await,
+        Command::Export(cmd) => cmd.run().await,
         Command::Asset(cmd) => cmd.run().await,
     }
 }

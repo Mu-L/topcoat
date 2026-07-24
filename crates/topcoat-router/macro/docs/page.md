@@ -8,6 +8,38 @@ Path strings are Topcoat [`Path`](struct.Path.html)s: literal segments (`users`)
 
 A page registers like any other handler: pass the function name to [`RouterBuilder::page`](struct.RouterBuilder.html#method.page), or let [`discover`](trait.RouterBuilderDiscoverExt.html) or [`module_router!`](macro.module_router.html) collect it automatically.
 
+# Static generation for explicit paths
+
+A fixed GET page is selected for static export automatically. For an explicit
+dynamic path, add `generate_static = function` after the path. The async
+function takes `&Cx` and returns `Result<Vec<StaticParams>>`, with one complete
+parameter set per concrete URL:
+
+```rust
+# use topcoat::{
+#     Result,
+#     context::Cx,
+#     router::{StaticParams, page},
+#     view::view,
+# };
+async fn generate_posts(_cx: &Cx) -> Result<Vec<StaticParams>> {
+    Ok(vec![
+        StaticParams::new().param("post_id", 1),
+        StaticParams::new().param("post_id", 2),
+    ])
+}
+
+#[page("/posts/{post_id}", generate_static = generate_posts)]
+async fn post() -> Result {
+    view! { <h1>"Post"</h1> }
+}
+```
+
+Every parameter in the path must be supplied. Use `StaticParams::param` for
+ordinary parameters and `StaticParams::catch_all` for wildcard tails.
+Module-derived dynamic pages put `generate_static` on their `segment!` or
+`#[path_param]` declarations instead.
+
 # Handler signature
 
 The function is `async` and returns [`Result`](../type.Result.html). It may take [`cx: &Cx`](../context/struct.Cx.html), one request body parameter implementing [`FromRequest`](trait.FromRequest.html), both, or neither. The body parameter may use a destructuring pattern such as `Json(input): Json<T>`. The parameters may appear in either order, but there can be at most one body parameter, because the body is a stream that can only be consumed once.

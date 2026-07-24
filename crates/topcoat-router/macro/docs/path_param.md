@@ -8,6 +8,23 @@ Apply `#[path_param]` to a single-field tuple struct. The struct name, snake-cas
 struct PostId(uuid::Uuid);
 ```
 
+# Static generation
+
+For a module-derived dynamic route, `generate_static = function` enumerates
+the values rendered by a static export. The async function takes `&Cx` and
+returns `Result<Vec<T>>`, where `T` is the path parameter's inner type. A `str`
+parameter uses `Result<Vec<String>>`.
+
+```rust
+# use topcoat::{Result, context::Cx, router::path_param};
+async fn generate_post_ids(_cx: &Cx) -> Result<Vec<u64>> {
+    Ok(vec![1, 2, 3])
+}
+
+#[path_param(error = not_found, generate_static = generate_post_ids)]
+struct PostId(u64);
+```
+
 # Reading the value
 
 [`path_param::<T>(cx)`](fn.path_param.html) returns the parameter. The return type follows the inner type:
@@ -67,6 +84,10 @@ A module contributes one path segment, so it can contain one `#[path_param]`. Pu
 
 `module_router!()` discovers handlers without explicit paths. If a page uses an explicit path, register it by name on the returned builder or call `RouterBuilderDiscoverExt::discover`; see the module-router documentation.
 
+`generate_static` on `#[path_param]` applies only to the module segment it
+declares. An explicit dynamic `#[page("/posts/{post_id}")]` declares its
+complete parameter sets with page-level `generate_static` instead.
+
 # Examples
 
 ## Module router
@@ -111,3 +132,4 @@ async fn show(cx: &Cx) -> Result {
 - The struct must be a tuple struct with exactly one field.
 - A non-`str` inner type must implement [`FromStr`](core::str::FromStr), and its parsed `Result` must be `Send + Sync + 'static` so it can be [memoized](../topcoat_core_macro/attr.memoize.html) for the request.
 - `error = ...` requires a parsed inner type; a `str` parameter cannot fail.
+- `generate_static` cannot be used on a generic path parameter.
