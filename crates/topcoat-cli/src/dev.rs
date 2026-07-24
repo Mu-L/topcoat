@@ -33,7 +33,7 @@ use app_server::AppServer;
 use broadcast_server::{Event, EventBus};
 use build::{BuildKind, BuildTask};
 use keyboard::Keyboard;
-use spinner::Spinner;
+pub(crate) use spinner::Spinner;
 use watch::{Change, SourceWatcher};
 
 use crate::cargo::{BuildFlags, BuildOpts, BuildStamp};

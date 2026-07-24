@@ -7,7 +7,8 @@ use topcoat_core::context::{ContextMap, CxBuilder};
 
 use crate::{
     Endpoint, Layer, LayerId, Layers, LayoutFn, Methods, Next, PageFn, PageWithLayouts,
-    PathSegment, RawPathParams, Request, Response, Route, Terminal, error::respond,
+    PathSegment, RawPathParams, Request, Response, Route, StaticPage, StaticRoutes, Terminal,
+    error::respond,
 };
 
 /// A finalized Topcoat routing table.
@@ -150,6 +151,9 @@ pub struct RouterBuilder {
     layouts: Vec<LayoutFn>,
     layers: Layers,
     context: ContextMap,
+    /// URLs served by this router that a static export copies verbatim,
+    /// contributed by extensions like the asset bundle.
+    static_files: Vec<String>,
     #[cfg(feature = "compression")]
     compression: crate::Compression,
 }
@@ -167,6 +171,7 @@ impl RouterBuilder {
             layouts: Vec::new(),
             layers: Layers::default(),
             context,
+            static_files: Vec::new(),
             #[cfg(feature = "compression")]
             compression: crate::Compression::new(),
         }
@@ -302,6 +307,47 @@ impl RouterBuilder {
         self
     }
 
+    /// Declares URLs this router serves that a static export should copy
+    /// verbatim, alongside its rendered pages.
+    ///
+    /// Registering an asset bundle adds every served asset URL this way, so a
+    /// site exported with `topcoat export` carries the same files at the same
+    /// URLs the running application serves them from. Only paths this router
+    /// answers `GET` for belong here; anything hosted elsewhere (a CDN, say) is
+    /// outside the export.
+    #[must_use]
+    pub fn static_files(mut self, paths: impl IntoIterator<Item = String>) -> Self {
+        self.static_files.extend(paths);
+        self
+    }
+
+    /// The [`StaticPage`] entry for every page registered so far, describing
+    /// what a static export of this router would cover.
+    ///
+    /// Pages that cannot be exported are included too, so the listing can
+    /// explain why one was left out rather than silently drop it. The router
+    /// builds this itself when it registers the development-only listing at
+    /// [`STATIC_ROUTES_PATH`](crate::STATIC_ROUTES_PATH).
+    #[must_use]
+    pub fn static_pages(&self) -> Vec<StaticPage> {
+        self.pages
+            .iter()
+            .map(|page| {
+                // Only a page answering `GET` has a static representation; a
+                // static host serves nothing else.
+                let serves_get = match page.methods() {
+                    Methods::Any => true,
+                    Methods::Only(methods) => methods.contains(&http::Method::GET),
+                };
+                StaticPage::new(
+                    Cow::Owned(page.path().to_owned()),
+                    serves_get,
+                    page.generate_static(),
+                )
+            })
+            .collect()
+    }
+
     /// Configures the compression applied to responses.
     ///
     /// By default the router compresses each response with the algorithm
@@ -415,15 +461,26 @@ impl RouterBuilder {
     /// registration order.
     #[must_use]
     pub fn build(self) -> Router {
+        // Under the `topcoat` CLI, expose what a static export covers. A
+        // deployed application never reaches this branch, so the listing is
+        // unreachable in production.
+        let static_routes = crate::dev::tooling_enabled()
+            .then(|| StaticRoutes::new(self.static_pages(), self.static_files.clone()));
+
         let RouterBuilder {
             mut routes,
             pages,
             layouts,
             layers,
             context,
+            static_files: _,
             #[cfg(feature = "compression")]
             compression,
         } = self;
+
+        if let Some(static_routes) = static_routes {
+            routes.push(Box::new(static_routes));
+        }
 
         // Wire each page to the layouts whose path is a prefix of the page's,
         // ordered from least- to most-specific so the page nests innermost.
@@ -1132,6 +1189,79 @@ mod tests {
         assert_eq!(status, StatusCode::OK);
         // Root (least specific) is outermost, admin is innermost, page deepest.
         assert_eq!(&body[..], b"R[A[page]]");
+    }
+
+    // -- Router::handle: the development-only static route listing --
+
+    #[test]
+    fn the_static_route_listing_is_absent_outside_the_topcoat_tooling() {
+        // The test process is not running under the `topcoat` CLI, which is
+        // also how a deployed application runs: the route is never registered.
+        assert!(!crate::dev::tooling_enabled());
+        let router = RouterBuilder::new()
+            .page(PageFn::new(Method::GET, path("/p"), render_page))
+            .build();
+        let (status, _, _) = send(&router, Method::GET, crate::STATIC_ROUTES_PATH);
+        assert_eq!(status, StatusCode::NOT_FOUND);
+    }
+
+    #[test]
+    fn the_static_route_listing_reports_pages_and_static_files() {
+        let router = RouterBuilder::new()
+            .route(crate::StaticRoutes::new(
+                vec![crate::StaticPage::new(path("/about"), true, None)],
+                vec!["/_topcoat/assets/logo-1a2b.png".to_owned()],
+            ))
+            .build();
+
+        let (status, headers, body) = send(&router, Method::GET, crate::STATIC_ROUTES_PATH);
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(
+            headers.get(http::header::CONTENT_TYPE).unwrap(),
+            "application/json"
+        );
+        let body = std::str::from_utf8(&body).unwrap();
+        assert!(body.contains(r#""path":"/about""#), "{body}");
+        assert!(
+            body.contains(r#""/_topcoat/assets/logo-1a2b.png""#),
+            "{body}"
+        );
+    }
+
+    #[test]
+    fn the_static_route_listing_reports_why_a_page_cannot_be_exported() {
+        let router = RouterBuilder::new()
+            .route(crate::StaticRoutes::new(
+                vec![
+                    crate::StaticPage::new(path("/about"), true, None),
+                    crate::StaticPage::new(path("/(group)/about"), true, None),
+                ],
+                Vec::new(),
+            ))
+            .build();
+
+        let (status, _, body) = send(&router, Method::GET, crate::STATIC_ROUTES_PATH);
+        assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
+        let body = std::str::from_utf8(&body).unwrap();
+        assert!(
+            body.contains("both generate the static path `/about`"),
+            "{body}"
+        );
+    }
+
+    #[test]
+    fn the_static_route_listing_answers_get_only() {
+        let router = RouterBuilder::new()
+            .route(crate::StaticRoutes::new(Vec::new(), Vec::new()))
+            .build();
+        let (status, _, _) = send(&router, Method::POST, crate::STATIC_ROUTES_PATH);
+        assert_eq!(status, StatusCode::METHOD_NOT_ALLOWED);
+    }
+
+    #[test]
+    fn static_files_reach_the_listing_through_the_builder() {
+        let builder = RouterBuilder::new().static_files(["/a.css".to_owned()]);
+        assert_eq!(builder.static_files, vec!["/a.css".to_owned()]);
     }
 
     #[test]

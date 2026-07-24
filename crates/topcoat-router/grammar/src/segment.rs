@@ -143,3 +143,38 @@ impl Parse for SegmentAttr {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn accepts_the_documented_attributes() {
+        for source in [
+            "kind = Param",
+            "rename = \"articles\"",
+            "kind = CatchAll, rename = \"path\"",
+        ] {
+            assert!(
+                syn::parse_str::<Segment>(source).is_ok(),
+                "rejected `{source}`"
+            );
+        }
+    }
+
+    #[test]
+    fn rejects_duplicate_attributes() {
+        let err = match syn::parse_str::<Segment>("kind = Param, kind = Static") {
+            Ok(_) => panic!("expected a duplicate attribute error"),
+            Err(err) => err.to_string(),
+        };
+        assert!(err.contains("duplicate attribute"), "{err}");
+    }
+
+    #[test]
+    fn rejects_generate_static() {
+        // Static export is declared per page, not per segment: a segment
+        // covers every item in its module, including non-page routes.
+        assert!(syn::parse_str::<Segment>("generate_static = posts").is_err());
+    }
+}

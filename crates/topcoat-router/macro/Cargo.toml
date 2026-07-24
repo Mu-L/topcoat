@@ -23,8 +23,9 @@ quote.workspace = true
 syn = { workspace = true, features = ["full"] }
 
 [dev-dependencies]
-topcoat = { workspace = true, features = ["router"] }
+topcoat = { workspace = true, features = ["discover", "router"] }
 serde = { workspace = true, features = ["derive"] }
+serde_json.workspace = true
 uuid = { workspace = true }
 http.workspace = true
 tokio = { workspace = true, features = ["macros", "rt"] }

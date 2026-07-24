@@ -4,7 +4,9 @@ use std::pin::Pin;
 use topcoat_core::{context::Cx, error::Result};
 use topcoat_view::View;
 
-use crate::{Body, IntoResponse, Methods, OwnedMethods, Path, Route, RouteFuture};
+use crate::{
+    Body, GenerateStaticFn, IntoResponse, Methods, OwnedMethods, Path, Route, RouteFuture,
+};
 
 /// The async render function backing a [`PageFn`].
 pub type PageRenderFn = for<'cx> fn(
@@ -30,6 +32,8 @@ pub struct PageFn {
     path: Cow<'static, Path>,
     /// The async render function that produces the page [`View`].
     render: PageRenderFn,
+    /// The page's `generate_static` function, when it declares one.
+    generate_static: Option<GenerateStaticFn>,
 }
 
 impl PageFn {
@@ -56,13 +60,32 @@ impl PageFn {
             methods,
             path,
             render,
+            generate_static: None,
         }
+    }
+
+    /// Declares the function supplying the [`StaticParams`](crate::StaticParams)
+    /// sets this page is exported for, as `#[page(generate_static = ...)]` does.
+    ///
+    /// A page whose path has dynamic segments is exported by `topcoat export`
+    /// only once it names a generator; a page with a fixed path is exported
+    /// either way.
+    #[must_use]
+    pub const fn with_generate_static(mut self, generate_static: GenerateStaticFn) -> Self {
+        self.generate_static = Some(generate_static);
+        self
     }
 
     /// Returns the HTTP methods this page responds to.
     #[must_use]
     pub fn methods(&self) -> Methods<'_> {
         self.methods.as_methods()
+    }
+
+    /// Returns the page's `generate_static` function, if it declares one.
+    #[must_use]
+    pub fn generate_static(&self) -> Option<GenerateStaticFn> {
+        self.generate_static
     }
 
     /// Returns the URL path this page handles.

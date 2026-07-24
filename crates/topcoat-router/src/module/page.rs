@@ -1,6 +1,6 @@
 use std::borrow::Cow;
 
-use crate::{LayoutFn, LayoutRenderFn, OwnedMethods, PageFn, PageRenderFn, Path};
+use crate::{GenerateStaticFn, LayoutFn, LayoutRenderFn, OwnedMethods, PageFn, PageRenderFn, Path};
 
 /// A page discovered by the module router, produced by the `#[page]` macro.
 ///
@@ -16,6 +16,8 @@ pub struct ModulePageFn {
     module_path: &'static str,
     /// The page's async render function, returning a [`Result`].
     pub(super) render: PageRenderFn,
+    /// The page's `generate_static` function, when it declares one.
+    generate_static: Option<GenerateStaticFn>,
 }
 
 impl ModulePageFn {
@@ -29,13 +31,26 @@ impl ModulePageFn {
             methods,
             module_path,
             render,
+            generate_static: None,
         }
+    }
+
+    /// Declares the function supplying the [`StaticParams`](crate::StaticParams)
+    /// sets this page is exported for, as `#[page(generate_static = ...)]` does.
+    #[must_use]
+    pub const fn with_generate_static(mut self, generate_static: GenerateStaticFn) -> Self {
+        self.generate_static = Some(generate_static);
+        self
     }
 
     /// Converts into a [`PageFn`] with the given resolved URL path.
     #[must_use]
     pub fn into_page(self, path: Cow<'static, Path>) -> PageFn {
-        PageFn::new(self.methods, path, self.render)
+        let page = PageFn::new(self.methods, path, self.render);
+        match self.generate_static {
+            Some(generate_static) => page.with_generate_static(generate_static),
+            None => page,
+        }
     }
 
     /// Returns the module path used to derive the URL.

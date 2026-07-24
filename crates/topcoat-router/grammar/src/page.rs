@@ -1,7 +1,7 @@
 use proc_macro2::TokenStream;
 use quote::{ToTokens, quote};
 use syn::{
-    ItemFn, LitStr, ReturnType, Visibility,
+    Ident, ItemFn, LitStr, ReturnType, Token, Visibility,
     parse::{Parse, ParseStream},
     parse_quote,
     spanned::Spanned,
@@ -14,19 +14,58 @@ use topcoat_core_grammar::paths::{
 use super::handler_args::{HandlerArg, HandlerArgs, request_ident};
 use super::method::Methods;
 
+/// The name of the only option `#[page]` accepts after its methods and path.
+const GENERATE_STATIC: &str = "generate_static";
+
 pub struct PageAttr {
     /// The declared HTTP methods; the page serves `GET` when omitted.
     methods: Option<Methods>,
     path: Option<LitStr>,
+    /// The function supplying the parameter sets the page is statically
+    /// exported for, from `generate_static = ...`.
+    generate_static: Option<syn::Path>,
 }
 
 impl Parse for PageAttr {
     fn parse(input: ParseStream) -> syn::Result<Self> {
         Ok(Self {
-            methods: Methods::parse_option(input)?,
+            // An HTTP method is never followed by `=`, so a leading
+            // `generate_static = ...` is not mistaken for one.
+            methods: if input.peek2(Token![=]) {
+                None
+            } else {
+                Methods::parse_option(input)?
+            },
             path: input.peek(LitStr).then(|| input.parse()).transpose()?,
+            generate_static: parse_generate_static(input)?,
         })
     }
+}
+
+/// Parses the trailing `generate_static = path` option, preceded by a comma
+/// when methods or a path came before it.
+fn parse_generate_static(input: ParseStream) -> syn::Result<Option<syn::Path>> {
+    if input.is_empty() {
+        return Ok(None);
+    }
+    if input.peek(Token![,]) {
+        input.parse::<Token![,]>()?;
+    }
+
+    let name: Ident = input.parse()?;
+    if name != GENERATE_STATIC {
+        return Err(syn::Error::new(
+            name.span(),
+            format!("unknown `page` option `{name}`; expected `{GENERATE_STATIC}`"),
+        ));
+    }
+    input.parse::<Token![=]>()?;
+    let path = input.parse()?;
+
+    if !input.is_empty() {
+        return Err(input.error(format!("unexpected tokens after `{GENERATE_STATIC}`")));
+    }
+    Ok(Some(path))
 }
 
 pub struct PageItem {
@@ -156,13 +195,25 @@ impl ToTokens for Page {
             || quote! { #topcoat_router::OwnedMethods::One(#topcoat_router::Method::GET) },
             ToTokens::to_token_stream,
         );
+        // The `generate_static` function, wrapped so it matches the erased
+        // `GenerateStaticFn` signature the router stores. Both the explicit-
+        // and module-path forms carry it, so a page opts into the static
+        // export the same way however its URL is derived.
+        let generate_static = attr.generate_static.as_ref().map(|path| {
+            quote! {
+                .with_generate_static(|cx| ::std::boxed::Box::pin(async move {
+                    #path(cx).await
+                }))
+            }
+        });
+
         let erased = if let Some(path) = attr.path.as_ref() {
             quote! {
                 const ERASED: #topcoat_router::PageFn = #topcoat_router::PageFn::const_new(
                     #methods,
                     ::std::borrow::Cow::Borrowed(#topcoat_router::Path::new(#path)),
                     #render,
-                );
+                )#generate_static;
 
                 impl ::core::convert::From<#ident> for #topcoat_router::PageFn {
                     fn from(_: #ident) -> Self {
@@ -173,7 +224,8 @@ impl ToTokens for Page {
         } else {
             quote! {
                 const ERASED: #topcoat_router::ModulePageFn =
-                    #topcoat_router::ModulePageFn::new(#methods, module_path!(), #render);
+                    #topcoat_router::ModulePageFn::new(#methods, module_path!(), #render)
+                        #generate_static;
 
                 impl ::core::convert::From<#ident> for #topcoat_router::ModulePageFn {
                     fn from(_: #ident) -> Self {
@@ -204,6 +256,13 @@ impl ToTokens for Page {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn attr_err(source: &str) -> String {
+        match syn::parse_str::<PageAttr>(source) {
+            Ok(_) => panic!("expected parse error for `{source}`"),
+            Err(err) => err.to_string(),
+        }
+    }
 
     fn parse_err(source: &str) -> String {
         match syn::parse_str::<PageItem>(source) {
@@ -237,6 +296,49 @@ mod tests {
             assert!(attr.methods.is_some());
             assert!(attr.path.is_none());
         }
+    }
+
+    #[test]
+    fn attr_accepts_generate_static_on_its_own() {
+        let attr: PageAttr = syn::parse_str("generate_static = posts").unwrap();
+        assert!(attr.methods.is_none());
+        assert!(attr.path.is_none());
+        assert!(attr.generate_static.is_some());
+    }
+
+    #[test]
+    fn attr_accepts_generate_static_after_an_explicit_path() {
+        let attr: PageAttr = syn::parse_str("\"/blog/{slug}\", generate_static = posts").unwrap();
+        assert!(attr.path.is_some());
+        assert!(attr.generate_static.is_some());
+    }
+
+    #[test]
+    fn attr_accepts_generate_static_after_methods_and_a_path() {
+        let attr: PageAttr =
+            syn::parse_str("[GET, POST] \"/blog/{slug}\", generate_static = posts").unwrap();
+        assert!(attr.methods.is_some());
+        assert!(attr.path.is_some());
+        assert!(attr.generate_static.is_some());
+    }
+
+    #[test]
+    fn attr_accepts_a_qualified_generate_static_path() {
+        let attr: PageAttr =
+            syn::parse_str("generate_static = crate::blog::generate_static_params").unwrap();
+        assert!(attr.generate_static.is_some());
+    }
+
+    #[test]
+    fn attr_rejects_an_unknown_option() {
+        let err = attr_err("\"/x\", revalidate = 60");
+        assert!(err.contains("unknown `page` option"), "{err}");
+    }
+
+    #[test]
+    fn attr_rejects_trailing_tokens_after_generate_static() {
+        let err = attr_err("generate_static = posts, extra");
+        assert!(err.contains("unexpected tokens"), "{err}");
     }
 
     #[test]

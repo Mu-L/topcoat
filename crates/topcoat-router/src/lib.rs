@@ -5,6 +5,7 @@ mod body;
 mod compression;
 mod content;
 mod context;
+pub mod dev;
 mod endpoint;
 pub mod error;
 mod layer;
@@ -24,6 +25,7 @@ mod router;
 mod serve;
 #[cfg(feature = "serve")]
 mod service;
+mod static_export;
 #[cfg(feature = "tower")]
 pub mod tower;
 
@@ -50,5 +52,6 @@ pub use router::*;
 pub use serve::*;
 #[cfg(feature = "serve")]
 pub use service::*;
+pub use static_export::*;
 
 pub use http::{HeaderMap, HeaderName, HeaderValue, Method, StatusCode, Uri, header};

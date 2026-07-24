@@ -58,7 +58,7 @@ percent-encoding.workspace = true
 inventory = { workspace = true, optional = true }
 multer = { workspace = true, optional = true }
 ref-cast.workspace = true
-serde.workspace = true
+serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
 serde_path_to_error.workspace = true
 serde_urlencoded.workspace = true

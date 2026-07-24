@@ -6,17 +6,19 @@ use std::net::SocketAddr;
 #[cfg(feature = "serve")]
 use tokio_tungstenite::tungstenite::Message;
 
+use crate::context::Cx;
+use crate::router::dev::{is_export_request, server_url};
 use crate::view::{component, view};
 
 /// Notify the topcoat dev server that the application is ready.
 ///
 /// Connects to the dev server's WebSocket endpoint (derived from the
-/// `TOPCOAT_DEV_URL` HTTP base URL provided by `topcoat dev`) and sends a
+/// `TOPCOAT_DEV_URL` HTTP base URL provided by the `topcoat` CLI) and sends a
 /// ready message with the application listener address when available. Does
 /// nothing if the env var is not set.
 #[cfg(feature = "serve")]
 pub async fn notify_ready(addr: Option<SocketAddr>) {
-    let Ok(base) = std::env::var("TOPCOAT_DEV_URL") else {
+    let Some(base) = server_url() else {
         return;
     };
 
@@ -54,10 +56,15 @@ fn http_to_ws(url: &str) -> String {
 /// after a build failure. Pass `status_indicator: false` to disable the
 /// indicator while keeping live reload.
 ///
-/// Renders nothing when the app is not running under `topcoat dev`.
+/// Renders nothing when the app is not running under `topcoat dev`, and
+/// nothing for a page `topcoat export` is rendering, so an exported static
+/// site carries no live-reload script.
 #[component]
-pub async fn script(#[default(true)] status_indicator: bool) -> Result {
-    let Ok(base) = std::env::var("TOPCOAT_DEV_URL") else {
+pub async fn script(cx: &Cx, #[default(true)] status_indicator: bool) -> Result {
+    if is_export_request(cx) {
+        return view! {};
+    }
+    let Some(base) = server_url() else {
         return view! {};
     };
     let src = format!("{base}/dev.js");

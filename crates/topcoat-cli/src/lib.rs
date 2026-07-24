@@ -3,6 +3,7 @@
 mod asset;
 mod cargo;
 mod dev;
+pub mod export;
 mod fmt;
 mod ui;
 
@@ -19,6 +20,8 @@ pub struct TopcoatCli {
 enum Command {
     /// Start a development server
     Dev(dev::DevCommand),
+    /// Export the application as a static site
+    Export(export::ExportCommand),
     /// Format topcoat `view!` macros
     Fmt(fmt::FmtCommand),
     /// Inspect assets embedded in the binary
@@ -32,6 +35,7 @@ pub async fn run() {
     match cli.command {
         Command::Ui(cmd) => cmd.run(),
         Command::Fmt(cmd) => cmd.run().await,
+        Command::Export(cmd) => cmd.run().await,
         Command::Dev(cmd) => cmd.run().await,
         Command::Asset(cmd) => cmd.run().await,
     }

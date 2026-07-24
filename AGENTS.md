@@ -69,6 +69,7 @@ The `docs/` directory contains the framework's user-facing guides. Consult the r
 ### Tooling
 
 - [`crates/topcoat-cli/docs/fmt.md`](crates/topcoat-cli/docs/fmt.md): `topcoat fmt`, which formats Topcoat macro bodies (like `view!`) alongside `rustfmt`, plus editor integration.
+- [`crates/topcoat-cli/docs/export.md`](crates/topcoat-cli/docs/export.md): `topcoat export`, which builds a deployable static site: what is exported, `#[page(generate_static = ...)]`, assets, output formats, and limitations.
 
 ## Safety
 

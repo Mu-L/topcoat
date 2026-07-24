@@ -2,6 +2,8 @@
 // cannot resolve; they degrade to plain text instead of failing the build.
 #![cfg_attr(not(feature = "serve"), allow(rustdoc::broken_intra_doc_links))]
 
+#[cfg(feature = "serve")]
+use topcoat_router::Route;
 use topcoat_router::RouterBuilder;
 
 #[cfg(feature = "serve")]
@@ -23,10 +25,13 @@ pub trait RouterBuilderAssetExt {
     ///
     /// A serving configuration ([`AssetConfig::serve`](crate::AssetConfig::serve))
     /// also adds an HTTP route for each bundled asset, served by the
-    /// application itself. A configuration hosted externally
+    /// application itself, and declares those URLs as
+    /// [static files](topcoat_router::RouterBuilder::static_files) so
+    /// `topcoat export` copies them into an exported site. A configuration
+    /// hosted externally
     /// ([`AssetConfig::hosted_at`](crate::AssetConfig::hosted_at)) adds no
     /// routes; the bundled files must be hosted at the configured base URL by
-    /// other means.
+    /// other means, and are outside the export.
     ///
     /// Anything convertible into an [`AssetConfig`] is accepted: an
     /// [`AssetBundle`](crate::AssetBundle) registers as the configuration
@@ -74,10 +79,13 @@ impl RouterBuilderAssetExt for RouterBuilder {
             #[cfg(feature = "serve")]
             Host::Serve { dir } => {
                 let mut builder = self;
+                let mut urls = Vec::new();
                 for asset in config.catalog.assets() {
-                    builder = builder.route(AssetRoute::new(dir, asset));
+                    let route = AssetRoute::new(dir, asset);
+                    urls.push(route.path().to_string());
+                    builder = builder.route(route);
                 }
-                builder
+                builder.static_files(urls)
             }
             Host::External { .. } => self,
         };

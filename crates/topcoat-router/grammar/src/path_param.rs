@@ -194,3 +194,22 @@ impl ToTokens for PathParam {
         .to_tokens(tokens);
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn attr_accepts_nothing_or_an_error_handler() {
+        assert!(syn::parse_str::<PathParamAttr>("").is_ok());
+        assert!(syn::parse_str::<PathParamAttr>("error = not_found").is_ok());
+    }
+
+    #[test]
+    fn attr_rejects_generate_static() {
+        // Static export is declared on the page, not on the typed parameter:
+        // a parameter can appear in several pages' paths, each generated
+        // differently.
+        assert!(syn::parse_str::<PathParamAttr>("generate_static = posts").is_err());
+    }
+}

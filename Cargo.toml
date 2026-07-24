@@ -47,6 +47,7 @@ members = [
     "examples/runtime",
     "examples/session",
     "examples/shard",
+    "examples/static-export",
     "examples/tailwind",
     "examples/toasty-todo",
     "examples/ui",

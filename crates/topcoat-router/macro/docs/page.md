@@ -8,6 +8,8 @@ Path strings are Topcoat [`Path`](struct.Path.html)s: literal segments (`users`)
 
 A page registers like any other handler: pass the function name to [`RouterBuilder::page`](struct.RouterBuilder.html#method.page), or let [`discover`](trait.RouterBuilderDiscoverExt.html) or [`module_router!`](macro.module_router.html) collect it automatically.
 
+After the methods and path, the attribute takes one option: `generate_static = ...`, which opts a dynamic page into a static export. See [Static export](#static-export).
+
 # Handler signature
 
 The function is `async` and returns [`Result`](../type.Result.html). It may take [`cx: &Cx`](../context/struct.Cx.html), one request body parameter implementing [`FromRequest`](trait.FromRequest.html), both, or neither. The body parameter may use a destructuring pattern such as `Json(input): Json<T>`. The parameters may appear in either order, but there can be at most one body parameter, because the body is a stream that can only be consumed once.
@@ -83,3 +85,41 @@ async fn preview() -> Result {
     }
 }
 ```
+
+# Static export
+
+[`topcoat export`](https://docs.rs/topcoat-cli/latest/topcoat_cli/export/index.html) renders an application into a directory of files for a static host. A page with a fixed path is exported as it stands. A page whose path has dynamic segments has no single URL to render, so it opts in by naming a generator with `generate_static`:
+
+```rust
+# use topcoat::{Result, context::Cx, router::{StaticParams, page}, view::view};
+# struct Post { slug: &'static str }
+# fn published_posts() -> Vec<Post> { vec![Post { slug: "hello" }] }
+async fn generate_static_params(_cx: &Cx) -> Result<Vec<StaticParams>> {
+    Ok(published_posts()
+        .iter()
+        .map(|entry| StaticParams::from([("slug", entry.slug)]))
+        .collect())
+}
+
+#[page("/blog/{slug}", generate_static = generate_static_params)]
+async fn post() -> Result {
+    view! { <h1>"Post"</h1> }
+}
+```
+
+The generator is an `async fn` taking [`cx: &Cx`](../context/struct.Cx.html) and returning one [`StaticParams`](struct.StaticParams.html) per URL the page is exported at. It runs inside a regular request, so it can read the app context and anything else a page handler can.
+
+Each set must name **every** dynamic segment in the page's path, including the segments its parent modules contribute. A page in `src/app/blog/year/slug.rs` serves `/blog/{year}/{slug}` even though its own module only contributes `{slug}`, so its generator supplies both `year` and `slug`. A set that leaves one out, names something the path does not declare, or names one twice fails the export with a message naming the page.
+
+The option works the same for a module-derived path and an explicit one, and follows the path when both are given:
+
+```rust
+# use topcoat::{Result, context::Cx, router::{StaticParams, page}, view::view};
+# async fn generate_static_params(_cx: &Cx) -> Result<Vec<StaticParams>> { Ok(vec![]) }
+#[page("/tags/{tag}", generate_static = generate_static_params)]
+async fn tag() -> Result {
+    view! { <h1>"Tag"</h1> }
+}
+```
+
+`generate_static` is accepted only here, not by [`segment!`](macro.segment.html) or [`#[path_param]`](attr.path_param.html): those describe a segment shared by every item in a module, while the URLs to export belong to one page. A page that does not answer `GET` cannot be exported, so declaring a generator on one is an error.
