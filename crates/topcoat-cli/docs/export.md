@@ -208,6 +208,7 @@ An export fails, rather than writing part of a site, when:
 - A generated parameter set is missing a parameter, names an unknown one, or names one twice.
 - A page generates the same URL twice, or two pages generate the same URL.
 - A page generates a URL that is also served as a static file.
+- Two URLs are written to the same file, which the chosen format can cause even when the URLs differ: a page at `/about` and an asset at `/about/index.html` under `--format directory`.
 - A page answers with anything other than `200 OK`.
 
 Each failure names the page's route path and what is wrong with it.

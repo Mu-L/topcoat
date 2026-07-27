@@ -73,7 +73,16 @@ impl ExportCommand {
         let spinner = Spinner::new("starting the application");
         let addr = ready.wait(&mut app).await;
         drop(spinner);
-        let addr = addr.unwrap_or_else(|error| fail(&error.to_string()));
+        let addr = match addr {
+            Ok(addr) => addr,
+            Err(error) => {
+                // An application that never reported in may still be running,
+                // and stopping the export runs no destructors, so the child is
+                // shut down before then.
+                app.shutdown().await;
+                fail(&error.to_string());
+            }
+        };
 
         let spinner = Spinner::new("exporting");
         let base_url = format!("http://{addr}");

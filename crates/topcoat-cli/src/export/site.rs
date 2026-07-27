@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::fmt;
 use std::fs;
 use std::io::Read;
@@ -142,8 +143,32 @@ fn write_site(
     staging: &Path,
     format: OutputFormat,
 ) -> Result<(), ExportError> {
-    for page in &listing.pages {
-        let file = staging.join(format.file_for(&page.path)?);
+    // Two URLs the application serves separately can name one file: a page at
+    // `/about` written to `about/index.html` and an asset at
+    // `/about/index.html`, say. The whole site is laid out before anything is
+    // fetched so a collision is reported rather than one URL overwriting the
+    // other.
+    let mut claimed = Claimed::default();
+    let pages = listing
+        .pages
+        .iter()
+        .map(|page| {
+            let file = format.file_for(&page.path)?;
+            claimed.claim(&file, &page.path)?;
+            Ok((page, file))
+        })
+        .collect::<Result<Vec<_>, ExportError>>()?;
+    let assets = listing
+        .assets
+        .iter()
+        .map(|asset| {
+            let file = file_for_asset(asset)?;
+            claimed.claim(&file, asset)?;
+            Ok((asset, file))
+        })
+        .collect::<Result<Vec<_>, ExportError>>()?;
+
+    for (page, file) in pages {
         // A page that fails names the route it came from, since that is what
         // the application declared and what has to be fixed.
         let body = fetch(agent, base_url, &page.path).map_err(|source| ExportError::Page {
@@ -151,15 +176,40 @@ fn write_site(
             route: page.route.clone(),
             source: Box::new(source),
         })?;
-        write_file(&file, &body)?;
+        write_file(&staging.join(file), &body)?;
     }
 
-    for asset in &listing.assets {
-        let file = staging.join(file_for_asset(asset)?);
-        write_file(&file, &fetch(agent, base_url, asset)?)?;
+    for (asset, file) in assets {
+        write_file(&staging.join(file), &fetch(agent, base_url, asset)?)?;
     }
 
     Ok(())
+}
+
+/// The files the site's URLs have been laid out into, so that no two URLs are
+/// written to the same one.
+#[derive(Default)]
+struct Claimed {
+    files: HashMap<PathBuf, String>,
+}
+
+impl Claimed {
+    /// Record that `url` is written to `file`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ExportError::Collision`] if another URL already writes there.
+    fn claim(&mut self, file: &Path, url: &str) -> Result<(), ExportError> {
+        if let Some(first) = self.files.get(file) {
+            return Err(ExportError::Collision {
+                file: file.to_path_buf(),
+                first: first.clone(),
+                second: url.to_owned(),
+            });
+        }
+        self.files.insert(file.to_path_buf(), url.to_owned());
+        Ok(())
+    }
 }
 
 /// Fetch one URL path from the application, requiring a successful response.
@@ -309,6 +359,15 @@ pub enum ExportError {
     },
     /// A listed URL cannot be written to a file.
     Path(OutputPathError),
+    /// Two listed URLs are written to the same file.
+    Collision {
+        /// The file both URLs name.
+        file: PathBuf,
+        /// The URL that claimed it first.
+        first: String,
+        /// The URL that would have overwritten it.
+        second: String,
+    },
     /// The site could not be written to disk.
     Io {
         /// The file or directory being written.
@@ -347,6 +406,15 @@ impl fmt::Display for ExportError {
                 write!(f, "page `{route}` at `{path}`: {source}")
             }
             Self::Path(error) => error.fmt(f),
+            Self::Collision {
+                file,
+                first,
+                second,
+            } => write!(
+                f,
+                "`{first}` and `{second}` are both written to {}",
+                file.display()
+            ),
             Self::Io { path, source } => write!(f, "failed to write {}: {source}", path.display()),
         }
     }
@@ -374,6 +442,31 @@ mod tests {
     fn request_paths_are_escaped_but_keep_their_separators() {
         let encoded = utf8_percent_encode("/blog/hello world", PATH_ESCAPES).to_string();
         assert_eq!(encoded, "/blog/hello%20world");
+    }
+
+    #[test]
+    fn distinct_files_are_all_claimed() {
+        let mut claimed = Claimed::default();
+        claimed
+            .claim(Path::new("about/index.html"), "/about")
+            .unwrap();
+        claimed
+            .claim(Path::new("_topcoat/assets/a.png"), "/_topcoat/assets/a.png")
+            .unwrap();
+    }
+
+    #[test]
+    fn a_second_url_cannot_claim_a_taken_file() {
+        let mut claimed = Claimed::default();
+        claimed
+            .claim(Path::new("about/index.html"), "/about")
+            .unwrap();
+        let error = claimed
+            .claim(Path::new("about/index.html"), "/about/index.html")
+            .unwrap_err();
+        let message = error.to_string();
+        assert!(message.contains("`/about`"), "{message}");
+        assert!(message.contains("`/about/index.html`"), "{message}");
     }
 
     #[test]
