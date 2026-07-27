@@ -1,4 +1,4 @@
-A [`Router`] handles incoming requests. Build one with [`Router::builder`], register pages, layouts, layers, and API routes, call [`build`](RouterBuilder::build), then pass it to [`start`](crate::start).
+A [`Router`] handles incoming requests. Build one with [`Router::builder`] and register your pages, layouts, layers, and API routes on it. Call [`build`](RouterBuilder::build) when you are done, then pass the router to [`start`](crate::start).
 
 Handlers register in two ways: **manually**, listing each item on the builder, or with **auto-discovery** (the `discover` feature collects annotated items at link time). For most apps, the recommended way to define routes is the [`module_router!`] macro, which builds on discovery and derives each URL from the module tree instead of a path string.
 
@@ -31,7 +31,7 @@ async fn user_profile() -> Result {
 }
 ```
 
-A page serves `GET` by default; naming methods before the path (`#[page(POST "/signup")]`) overrides that, with the same method forms as [`#[route]`](route).
+A page serves `GET` by default; naming methods before the path (e.g., `#[page(POST "/signup")]`) overrides that, with the same method forms as [`#[route]`](route).
 
 See [`#[page]`](page) for the handler signature, module-derived paths, and using pages as components.
 
@@ -106,7 +106,7 @@ See [`#[route]`](route) for the handler signature and how return values convert 
 
 # Request and response bodies
 
-A page or route handler can take the request context as `cx: &`[`Cx`](crate::context::Cx) and, alongside it, a single request body parameter. That parameter can be any type that implements [`FromRequest`]. API routes additionally return `Result<T>` where `T:` [`IntoResponse`].
+A page or route handler can take the request context as `cx: &`[`Cx`](crate::context::Cx) and, alongside it, a single request body parameter, such as a [`Json`](content::Json) body. An API route additionally returns a value that becomes the response.
 
 ```rust
 # #[derive(serde::Deserialize)] struct CreateUser { name: String }
@@ -114,7 +114,7 @@ A page or route handler can take the request context as `cx: &`[`Cx`](crate::con
 use topcoat::{
     Result,
     context::Cx,
-    router::{Json, route},
+    router::{content::Json, route},
 };
 
 #[route(POST "/api/users")]
@@ -124,7 +124,7 @@ async fn create_user(cx: &Cx, Json(input): Json<CreateUser>) -> Result<Json<User
 }
 ```
 
-The context and the body parameter are both optional and may appear in either order, but there can be at most one body parameter, because the body is a stream that can only be consumed once. Pages use the same [`FromRequest`] parsing, but return a rendered view rather than an [`IntoResponse`] value. See [`FromRequest`] and [`IntoResponse`] for the implementing types.
+The context and the body parameter are both optional and may appear in either order, but there can be at most one body parameter, because the body is a stream that can only be consumed once. Pages parse bodies the same way, but return a rendered view rather than a response value. See the [`content`](mod@content) module docs for the available extractors and response types, as well as multipart uploads, WebSockets, and server-sent events.
 
 # Path and query parameters
 
@@ -295,6 +295,10 @@ pub fn router() -> Router {
 
 This finds annotated items across your crate and dependencies. Discovered layers must have unique paths because link-time collection order is not stable; if you need to stack several layers on one path, register them explicitly with `.layer(...)`.
 
+Other features collect their own annotated items at link time, so `discover()` registers those too, such as the fonts declared with `font!`. Values that are not annotated items are always registered by hand, including the asset bundle (`.assets(...)`) and application context (`.app_context(...)`).
+
+[`module_router!`] registers module-derived handlers only. It returns a `RouterBuilder`, so call `discover()` on it, or register the remaining items by hand, exactly as above.
+
 # Serving
 
 Use [`start`](crate::start) to run a finalized router:
@@ -337,7 +341,7 @@ With the `tower` feature enabled, the [`tower`](mod@tower) module bridges the to
 use topcoat::{
     Result,
     context::CxBuilder,
-    router::{Body, Json, Next, Response, Router, layer, layout, page, route},
+    router::{Body, Next, Response, Router, content::Json, layer, layout, page, route},
     view::view,
 };
 

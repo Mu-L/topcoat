@@ -27,6 +27,9 @@ pub mod cookie;
 
 pub mod context;
 
+#[cfg(feature = "datastar")]
+pub mod datastar;
+
 #[cfg(feature = "font")]
 pub mod font;
 
@@ -35,6 +38,9 @@ pub mod htmx;
 
 #[cfg(feature = "icon")]
 pub mod icon;
+
+#[cfg(feature = "mail")]
+pub mod mail;
 
 #[cfg(feature = "router")]
 pub mod router;

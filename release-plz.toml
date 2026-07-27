@@ -13,10 +13,56 @@ release_always = true
 # the publishable members under `crates/`.
 release = false
 
+# One git tag and GitHub release per Topcoat version, not one per crate. Every
+# crate shares the workspace version through the `topcoat` version group, so the
+# facade crate alone opts back in below and tags plain `v{{ version }}`.
+git_tag_enable = false
+git_release_enable = false
+
 [[package]]
 name = "topcoat"
 release = true
 version_group = "topcoat"
+git_tag_enable = true
+git_tag_name = "v{{ version }}"
+git_release_enable = true
+git_release_name = "v{{ version }}"
+# The facade's changelog (and thus the release body) covers the whole
+# workspace, not just commits touching `crates/topcoat`. Keep in sync with the
+# other publishable members below.
+changelog_include = [
+    "topcoat-alpine-ajax",
+    "topcoat-asset",
+    "topcoat-cli",
+    "topcoat-cookie",
+    "topcoat-core",
+    "topcoat-core-grammar",
+    "topcoat-core-macro",
+    "topcoat-datastar",
+    "topcoat-font",
+    "topcoat-font-grammar",
+    "topcoat-font-macro",
+    "topcoat-htmx",
+    "topcoat-icon",
+    "topcoat-icon-grammar",
+    "topcoat-icon-macro",
+    "topcoat-mail",
+    "topcoat-mail-grammar",
+    "topcoat-mail-macro",
+    "topcoat-router",
+    "topcoat-router-grammar",
+    "topcoat-router-macro",
+    "topcoat-runtime",
+    "topcoat-runtime-grammar",
+    "topcoat-runtime-macro",
+    "topcoat-session",
+    "topcoat-tailwind",
+    "topcoat-ui",
+    "topcoat-ui-registry",
+    "topcoat-view",
+    "topcoat-view-grammar",
+    "topcoat-view-macro",
+]
 
 [[package]]
 name = "topcoat-alpine-ajax"
@@ -54,6 +100,11 @@ release = true
 version_group = "topcoat"
 
 [[package]]
+name = "topcoat-datastar"
+release = true
+version_group = "topcoat"
+
+[[package]]
 name = "topcoat-font"
 release = true
 version_group = "topcoat"
@@ -85,6 +136,21 @@ version_group = "topcoat"
 
 [[package]]
 name = "topcoat-icon-macro"
+release = true
+version_group = "topcoat"
+
+[[package]]
+name = "topcoat-mail"
+release = true
+version_group = "topcoat"
+
+[[package]]
+name = "topcoat-mail-grammar"
+release = true
+version_group = "topcoat"
+
+[[package]]
+name = "topcoat-mail-macro"
 release = true
 version_group = "topcoat"
 

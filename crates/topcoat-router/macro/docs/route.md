@@ -2,7 +2,7 @@ Declares an API route handler.
 
 A route always declares its HTTP methods as the first argument:
 
-- a single method (`GET`, `POST`, `PUT`, `DELETE`, `PATCH`, `HEAD`, or `OPTIONS`),
+- a single method, named as it is on `Method` (`GET`, `POST`, and so on),
 - a bracketed list (`[GET, POST]`) responding to each listed method, or
 - `*`, responding to every method. A route declaring a specific method takes precedence over a `*` route at the same path.
 
@@ -26,7 +26,7 @@ Explicit method and path, reading a JSON body and answering with one:
 use serde::{Deserialize, Serialize};
 use topcoat::{
     Result,
-    router::{Json, route},
+    router::{content::Json, route},
 };
 
 #[derive(Deserialize, Serialize)]

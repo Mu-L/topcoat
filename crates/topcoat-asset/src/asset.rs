@@ -7,21 +7,71 @@ use topcoat_core::fnv1a;
 
 use crate::{AssetOptions, ConstReader, ConstWriter, Source};
 
-/// Compact identifier for an asset declared via [`asset!`](crate::asset).
+/// Handle to an asset declared via [`asset!`](crate::asset).
 ///
-/// `Asset` values are cheap to copy and store, and stable across runs as
-/// long as the declaring crate name, source file path, and asset path
-/// don't change. Use [`AssetBundle::get`](crate::AssetBundle::get) to
-/// resolve one back to a file.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(transparent)]
-pub struct Asset(u64);
+/// `Asset` values are cheap to copy and reference the declaration the
+/// [`asset!`](crate::asset) macro embeds into the compiled binary. Rendered
+/// in a view, a handle resolves to the URL of its bundled file;
+/// [`id`](Self::id) recovers the compact [`AssetId`] the file is cataloged
+/// under.
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+pub struct Asset(&'static [u8]);
 
 impl Asset {
-    /// Build an `Asset` ID from the same inputs the [`asset!`](crate::asset)
+    #[doc(hidden)]
+    #[must_use]
+    pub const fn new(inner: &'static [u8]) -> Self {
+        Self(inner)
+    }
+
+    /// The compact [`AssetId`] identifying this asset.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the handle does not reference a valid encoded declaration;
+    /// handles returned by [`asset!`](crate::asset) are always valid.
+    #[must_use]
+    pub fn id(&self) -> AssetId {
+        // The bundler discovers assets by scanning the binary for these
+        // bytes; reading them through black_box stops the optimizer from
+        // folding the load and stripping them out.
+        let bytes = core::hint::black_box(self.0);
+        let mut reader = ConstReader::new(bytes);
+        reader.skip(SCRAMBLED_PREFIX.len());
+        AssetId(
+            reader
+                .read_u64_le()
+                .expect("raw asset does not have a valid ID"),
+        )
+    }
+}
+
+impl std::fmt::Debug for Asset {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct(stringify!(Asset))
+            .field("id", &self.id())
+            .finish()
+    }
+}
+
+/// Compact identifier for an asset declared via [`asset!`](crate::asset).
+///
+/// `AssetId` values are cheap to copy and store, and stable across runs as
+/// long as the declaring crate name, source file path, and asset path
+/// don't change. They key the catalogs and manifests a bundle is resolved
+/// through: [`Asset::id`] recovers one at runtime, and
+/// [`AssetBundle::get`](crate::AssetBundle::get) resolves it back to a
+/// file.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct AssetId(u64);
+
+impl AssetId {
+    /// Build an asset ID from the same inputs the [`asset!`](crate::asset)
     /// macro uses.
     ///
-    /// Prefer calling [`asset!`](crate::asset) directly; this is exposed
+    /// Prefer declaring assets with [`asset!`](crate::asset) and reading
+    /// the ID off the returned handle with [`Asset::id`]; this is exposed
     /// for tooling and tests that need to reconstruct an ID from its parts.
     #[must_use]
     pub const fn new(
@@ -52,11 +102,11 @@ impl Asset {
 /// An asset declaration recovered from a compiled binary.
 ///
 /// This is what the [`Bundler`](crate::Bundler) sees while scanning: the
-/// [`Asset`] ID together with the path, options, and the crate/source
+/// [`AssetId`] together with the path, options, and the crate/source
 /// context needed to resolve relative paths back to real files.
 #[derive(Debug, Clone, PartialEq)]
 pub struct RawAsset {
-    id: Asset,
+    id: AssetId,
     path: String,
     crate_name: String,
     manifest_dir: String,
@@ -64,12 +114,13 @@ pub struct RawAsset {
     options: AssetOptions,
 }
 
+/// Size in bytes of one encoded asset declaration embedded into the binary.
 pub const ENCODED_ASSET_SIZE: usize = 2048;
 
 impl RawAsset {
     #[must_use]
     pub const fn encode(
-        id: Asset,
+        id: AssetId,
         path: &str,
         crate_name: &str,
         manifest_dir: &str,
@@ -93,7 +144,7 @@ impl RawAsset {
         let mut r = ConstReader::new(buffer);
         r.skip(asset_prefix().len())?;
         Some(Self {
-            id: Asset(r.read_u64_le()?),
+            id: AssetId(r.read_u64_le()?),
             path: r.read_str()?.to_owned(),
             crate_name: r.read_str()?.to_owned(),
             manifest_dir: r.read_str()?.to_owned(),
@@ -119,7 +170,7 @@ impl RawAsset {
     }
 
     #[must_use]
-    pub fn id(&self) -> Asset {
+    pub fn id(&self) -> AssetId {
         self.id
     }
 
@@ -208,16 +259,25 @@ fn normalize(path: &Path) -> PathBuf {
     out
 }
 
-/// Declare an asset and get back its [`Asset`] ID.
+/// Declare an asset and get back its [`Asset`] handle.
 ///
 /// The first argument is the asset's source location, either a path or
 /// an `http(s)://` URL. Any remaining arguments configure
 /// [`AssetOptions`] using the same syntax as
 /// [`asset_options!`](crate::asset_options).
 ///
-/// Because the macro expands to a `const` and a `#[used] static`, both
-/// the path and any options must be string literals (or other const
-/// expressions): they cannot be computed at runtime.
+/// Because the macro expands to compile-time items, both the path and any
+/// options must be string literals (or other const expressions): they
+/// cannot be computed at runtime.
+///
+/// # Discovery
+///
+/// The macro embeds the declaration into the compiled binary, where the
+/// [`Bundler`](crate::Bundler) finds it by scanning. The embedded data is
+/// kept in the binary through the returned [`Asset`] handle: an asset is
+/// bundled only while some code path uses its handle. A declaration whose
+/// handle is never used can be optimized out of the binary, and the
+/// bundler then no longer sees it.
 ///
 /// # Path resolution
 ///
@@ -233,8 +293,8 @@ fn normalize(path: &Path) -> PathBuf {
 ///
 /// # Options
 ///
-/// Options control how the bundler names the output file and (optionally)
-/// pins its contents. All are optional:
+/// Each named argument sets a field on [`AssetOptions`], which documents
+/// them all. All are optional. The common ones:
 ///
 /// - `rename: "name"`: replace the file stem (everything before the final `.`) with `"name"`.
 /// - `extension: "ext"`: override the output extension (without the leading dot). Useful when the
@@ -244,6 +304,8 @@ fn normalize(path: &Path) -> PathBuf {
 ///   [`AssetError::ChecksumMismatch`](crate::AssetError) if the source's actual hash differs, or
 ///   [`AssetError::UnsupportedChecksum`](crate::AssetError) if the prefix is missing or
 ///   unsupported. Recommended for remote assets.
+/// - `content_type: "text/css"`: set the `Content-Type` the asset is served with, instead of
+///   guessing it from the bundled file's extension.
 ///
 /// Output filenames always include a short content hash so bundles stay
 /// cache-friendly: e.g. `logo-1a2b3c4d5e6f7a8b.png`, or
@@ -251,9 +313,10 @@ fn normalize(path: &Path) -> PathBuf {
 ///
 /// # Returns
 ///
-/// A `const` [`Asset`] ID. The ID is stable across builds as long as the
-/// declaring crate, source file, and path string don't change: renaming
-/// the file on disk or changing options does *not* change the ID.
+/// A `const`-compatible [`Asset`] handle. Its [`AssetId`], read with
+/// [`Asset::id`], is stable across builds as long as the declaring crate,
+/// source file, and path string don't change: renaming the file on disk
+/// or changing options does *not* change the ID.
 ///
 /// # Examples
 ///
@@ -281,9 +344,8 @@ macro_rules! asset {
         const MANIFEST_DIR: &str = env!("CARGO_MANIFEST_DIR");
         const SOURCE_FILE: &str = file!();
         const OPTIONS: $crate::AssetOptions = $crate::asset_options!($($($ao)*)?);
-        const ID: $crate::Asset = $crate::Asset::new(CRATE_NAME, SOURCE_FILE, PATH, &OPTIONS);
+        const ID: $crate::AssetId = $crate::AssetId::new(CRATE_NAME, SOURCE_FILE, PATH, &OPTIONS);
 
-        #[used]
         pub static ENCODED_ASSET: [u8; $crate::ENCODED_ASSET_SIZE] = $crate::RawAsset::encode(
             ID,
             PATH,
@@ -293,7 +355,7 @@ macro_rules! asset {
             &OPTIONS,
         );
 
-        ID
+        $crate::Asset::new(ENCODED_ASSET.as_slice())
     }};
 }
 

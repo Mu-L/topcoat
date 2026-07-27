@@ -2,7 +2,7 @@ The `module_router!` macro derives a handler's path from its enclosing Rust modu
 
 # Setup
 
-Call `module_router!()` from the root module of the route tree. That module maps to `/`. The macro returns a `RouterBuilder`, so add application context or other router extensions before calling `.build()`.
+Call `module_router!()` from the root module of the route tree. That module maps to `/`. The macro returns a `RouterBuilder`, so add everything else your application needs on that builder before calling `.build()`.
 
 ```rust
 // src/app.rs
@@ -25,6 +25,38 @@ src/
 ```
 
 Every module-derived `#[page]`, `#[layout]`, `#[layer]`, and `#[route]` under the module containing `module_router!()` is registered.
+
+# Registering everything else
+
+Module-derived handlers are all that `module_router!()` registers. Handlers with an explicit path string, fonts, procedures, shards, the asset bundle, and application context are registered on the builder it returns, the same way they are registered on a builder from `Router::builder()`.
+
+With the `discover` feature, `RouterBuilderDiscoverExt::discover` adds everything Topcoat collects at link time. That covers explicit-path handlers and the annotated items of other features, such as fonts. Registration is additive, so it composes with `module_router!()`:
+
+```rust
+use topcoat::router::{Router, RouterBuilderDiscoverExt};
+
+pub fn router() -> Router {
+    topcoat::router::module_router!().discover().build()
+}
+```
+
+Anything that is registered as a value is passed in by hand. The asset bundle is the common case: a view that renders an `Asset`, such as a Tailwind stylesheet or a self-hosted font, needs the bundle on the router.
+
+```rust,no_run
+use topcoat::{
+    asset::{AssetBundle, RouterBuilderAssetExt},
+    router::{Router, RouterBuilderDiscoverExt},
+};
+
+pub fn router() -> Router {
+    topcoat::router::module_router!()
+        .discover()
+        .assets(AssetBundle::load().unwrap())
+        .build()
+}
+```
+
+A missing registration is not a compile error. It surfaces on the first request that renders the item, as a panic about a type that is not registered for the application context. The type named in that panic tells you which registration the router is missing.
 
 # How modules map to routes
 
@@ -277,15 +309,7 @@ pub fn router() -> topcoat::router::Router {
 }
 ```
 
-To discover all explicit-path handlers too, call `RouterBuilderDiscoverExt::discover` on the returned builder:
-
-```rust
-use topcoat::router::{Router, RouterBuilderDiscoverExt};
-
-pub fn router() -> Router {
-    topcoat::router::module_router!().discover().build()
-}
-```
+To register all explicit-path handlers at once, call `.discover()` on the returned builder instead, as described in "Registering everything else".
 
 # Conflicts
 

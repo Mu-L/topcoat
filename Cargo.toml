@@ -7,6 +7,7 @@ members = [
     "crates/topcoat-cli",
     "crates/topcoat-cookie",
     "crates/topcoat-core",
+    "crates/topcoat-datastar",
     "crates/topcoat-core/grammar",
     "crates/topcoat-core/macro",
     "crates/topcoat-font",
@@ -16,6 +17,9 @@ members = [
     "crates/topcoat-icon",
     "crates/topcoat-icon/grammar",
     "crates/topcoat-icon/macro",
+    "crates/topcoat-mail",
+    "crates/topcoat-mail/grammar",
+    "crates/topcoat-mail/macro",
     "crates/topcoat-router",
     "crates/topcoat-router/grammar",
     "crates/topcoat-router/macro",
@@ -35,6 +39,7 @@ members = [
     "examples/asset",
     "examples/context",
     "examples/cookie",
+    "examples/datastar",
     "examples/font",
     "examples/hello-world",
     "examples/htmx",
@@ -47,10 +52,12 @@ members = [
     "examples/runtime",
     "examples/session",
     "examples/shard",
+    "examples/sse",
     "examples/static-export",
     "examples/tailwind",
     "examples/toasty-todo",
     "examples/ui",
+    "examples/websocket",
 
     "benchmarks/topcoat",
 ]
@@ -109,6 +116,7 @@ topcoat-cookie = { version = "0.4.0", path = "crates/topcoat-cookie" }
 topcoat-core = { version = "0.4.0", path = "crates/topcoat-core" }
 topcoat-core-grammar = { version = "0.4.0", path = "crates/topcoat-core/grammar" }
 topcoat-core-macro = { version = "0.4.0", path = "crates/topcoat-core/macro" }
+topcoat-datastar = { version = "0.4.0", path = "crates/topcoat-datastar" }
 topcoat-font = { version = "0.4.0", path = "crates/topcoat-font" }
 topcoat-font-grammar = { version = "0.4.0", path = "crates/topcoat-font/grammar" }
 topcoat-font-macro = { version = "0.4.0", path = "crates/topcoat-font/macro" }
@@ -116,6 +124,9 @@ topcoat-htmx = { version = "0.4.0", path = "crates/topcoat-htmx" }
 topcoat-icon = { version = "0.4.0", path = "crates/topcoat-icon" }
 topcoat-icon-grammar = { version = "0.4.0", path = "crates/topcoat-icon/grammar" }
 topcoat-icon-macro = { version = "0.4.0", path = "crates/topcoat-icon/macro" }
+topcoat-mail = { version = "0.4.0", path = "crates/topcoat-mail" }
+topcoat-mail-grammar = { version = "0.4.0", path = "crates/topcoat-mail/grammar" }
+topcoat-mail-macro = { version = "0.4.0", path = "crates/topcoat-mail/macro" }
 topcoat-router = { version = "0.4.0", path = "crates/topcoat-router" }
 topcoat-router-grammar = { version = "0.4.0", path = "crates/topcoat-router/grammar" }
 topcoat-router-macro = { version = "0.4.0", path = "crates/topcoat-router/macro" }
@@ -132,7 +143,6 @@ topcoat-view-macro = { version = "0.4.0", path = "crates/topcoat-view/macro" }
 
 anyhow = "1.0"
 anymap3 = "1.0"
-axum = "0.8.8"
 base64 = "0.22"
 boxcar = "0.2"
 bytes = "1"
@@ -143,6 +153,7 @@ criterion = "0.8"
 dialoguer = { version = "0.12", default-features = false }
 form_urlencoded = "1"
 futures-core = "0.3"
+futures-sink = "0.3"
 futures-util = "0.3"
 getrandom = "0.4"
 getrandom02 = { package = "getrandom", version = "0.2" }
@@ -158,6 +169,7 @@ ignore = "0.4"
 indicatif = "0.18"
 inventory = "0.3.24"
 itoa = "1.0"
+lettre = { version = "0.11", default-features = false }
 matchit = "0.9"
 memchr = "2.8"
 mime_guess = "2"
@@ -178,10 +190,11 @@ sha2 = "0.11"
 smallvec = "1"
 syn = "2.0.117"
 thiserror = "2.0.18"
+time = "0.3"
 toasty = "0.7"
 tokio = "1.51.1"
 toml = "1.1.2"
-tokio-tungstenite = "0.29"
+tokio-tungstenite = { version = "0.29", default-features = false }
 tower = "0.5"
 tower-http = "0.7"
 ureq = "3.3"

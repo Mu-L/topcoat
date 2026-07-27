@@ -61,8 +61,8 @@ pub trait RouterBuilderAssetExt {
     /// pub fn router() -> Router {
     ///     Router::builder()
     ///         .assets(AssetConfig::hosted_at(
-    ///             AssetBundle::load().unwrap(),
     ///             "https://cdn.example.com/assets",
+    ///             AssetBundle::load().unwrap(),
     ///         ))
     ///         .build()
     /// }

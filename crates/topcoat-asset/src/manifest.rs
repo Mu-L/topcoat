@@ -2,14 +2,14 @@ use std::{fs, io, path::Path};
 
 use serde::{Deserialize, Serialize};
 
-use crate::Asset;
+use crate::AssetId;
 
 /// Filename of the manifest within a bundle directory.
 pub const MANIFEST_NAME: &str = "manifest.toml";
 /// Current on-disk manifest format version.
 pub const MANIFEST_VERSION: u32 = 1;
 
-/// On-disk index of a bundle directory, mapping [`Asset`] IDs to files.
+/// On-disk index of a bundle directory, mapping [`AssetId`]s to files.
 #[derive(Serialize, Deserialize)]
 pub struct Manifest {
     pub version: u32,
@@ -67,7 +67,7 @@ impl Manifest {
 /// hex digest of the file's contents, and the `Content-Type` it is served with.
 #[derive(Serialize, Deserialize)]
 pub struct ManifestEntry {
-    pub id: Asset,
+    pub id: AssetId,
     pub file: String,
     pub hash: String,
     pub content_type: String,
