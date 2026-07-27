@@ -1,22 +1,21 @@
+use std::borrow::Cow;
+use std::future;
 use std::io;
 use std::net::SocketAddr;
 use std::path::Path;
 use std::process::Stdio;
 use std::time::Duration;
 
-use axum::{
-    Router,
-    extract::{
-        State, WebSocketUpgrade,
-        ws::{Message, WebSocket},
-    },
-    response::IntoResponse,
-    routing::get,
-};
 use futures_util::StreamExt;
 use tokio::net::TcpListener;
 use tokio::process::{Child, Command};
 use tokio::sync::mpsc;
+use topcoat_core::context::{Cx, app_context};
+use topcoat_router::{
+    Body, FromRequest, Method, Path as RoutePath, RouteFn, RouteFuture, Router, RouterService,
+    content::websocket::{Message, WebSocket, WebSocketUpgrade},
+    internal_serve,
+};
 
 /// How long the already-built application gets to bind its listener and report
 /// in.
@@ -48,8 +47,16 @@ impl ReadyServer {
         let (tx, ready) = mpsc::channel(1);
 
         tokio::spawn(async move {
-            let app = Router::new().route("/ws", get(ws_handler)).with_state(tx);
-            let _ = axum::serve(listener, app).await;
+            let router = Router::builder()
+                .app_context(tx)
+                .route(RouteFn::new(
+                    Method::GET,
+                    Cow::Borrowed(RoutePath::new("/ws")),
+                    ws_route,
+                ))
+                .build();
+
+            let _ = internal_serve(listener, RouterService::new(router), future::pending()).await;
         });
 
         Ok(Self { url, ready })
@@ -82,11 +89,12 @@ impl ReadyServer {
     }
 }
 
-async fn ws_handler(
-    ws: WebSocketUpgrade,
-    State(ready): State<mpsc::Sender<Option<SocketAddr>>>,
-) -> impl IntoResponse {
-    ws.on_upgrade(move |socket| handle_socket(socket, ready))
+fn ws_route(cx: &Cx, body: Body) -> RouteFuture<'_> {
+    Box::pin(async move {
+        let upgrade = WebSocketUpgrade::from_request(cx, body).await?;
+        let ready = app_context::<mpsc::Sender<Option<SocketAddr>>>(cx).clone();
+        upgrade.on_upgrade(move |socket| handle_socket(socket, ready))
+    })
 }
 
 async fn handle_socket(ws: WebSocket, ready: mpsc::Sender<Option<SocketAddr>>) {

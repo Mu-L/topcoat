@@ -26,7 +26,7 @@ use console::style;
 
 use app::{AppProcess, ReadyServer};
 
-use crate::cargo::{BuildFlags, BuildOpts};
+use crate::common::cargo::{BuildFlags, BuildOpts};
 use crate::dev::Spinner;
 
 #[derive(Args)]
@@ -106,10 +106,11 @@ impl ExportCommand {
 async fn build(opts: &BuildOpts) -> PathBuf {
     let spinner = Spinner::new("building");
     let progress = spinner.bar();
-    let built = crate::cargo::build_and_read(opts, move |current, total| {
-        progress.set_message(format!("building ({current}/{total})"));
-    })
-    .await;
+    let built = opts
+        .build_and_read(move |current, total| {
+            progress.set_message(format!("building ({current}/{total})"));
+        })
+        .await;
     drop(spinner);
 
     let (exe, bytes) = built.unwrap_or_else(|error| error.print_and_exit());
