@@ -193,7 +193,7 @@ path_param!(*path);
 
 The declaration emits a `CatchAll` segment override. The module must be the last served segment, and the catch-all matches at least one segment.
 
-Handlers read an unparsed catch-all as [`PathSegments`](crate::PathSegments) or add a segment type to read a parsed slice.
+Handlers read an unparsed catch-all as [`CatchAllSegments`](crate::CatchAllSegments) or add a segment type to read a parsed slice.
 
 See the [`path_param!` macro reference](https://docs.rs/topcoat/latest/topcoat/router/macro.path_param.html) for value shapes, construction, parsing, and errors.
 

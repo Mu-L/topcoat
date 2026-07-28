@@ -123,18 +123,18 @@ Keep the declaration private when only descendant modules read it. Use the narro
 Prefix the name with `*` to capture the remaining path as separate decoded segments. A catch-all must be the last served segment and matches at least one segment.
 
 ```rust
-# use topcoat::{context::Cx, Result, router::{PathSegments, page, path_param}, view::view};
+# use topcoat::{context::Cx, Result, router::{CatchAllSegments, page, path_param}, view::view};
 path_param!(*doc_path);
 
 #[page("/docs/{*doc_path}")]
 async fn document(cx: &Cx) -> Result {
-    let path: PathSegments<'_> = path_param::<DocPath>(cx);
+    let path: CatchAllSegments<'_> = path_param::<DocPath>(cx);
     let path = path.collect::<std::path::PathBuf>();
     view! { (path.display().to_string()) }
 }
 ```
 
-[`PathSegments`](struct.PathSegments.html) yields one decoded `&str` per URL segment. For `/docs/api%2Frouter/start`, it yields `"api/router"` and `"start"`; the encoded slash stays inside the first segment.
+[`CatchAllSegments`](struct.CatchAllSegments.html) yields one decoded `&str` per URL segment. For `/docs/api%2Frouter/start`, it yields `"api/router"` and `"start"`; the encoded slash stays inside the first segment.
 
 A typed catch-all parses each segment and returns a memoized slice.
 
@@ -181,6 +181,6 @@ The `path_param::<T>(cx)` call shape remains unchanged; update `T` when the gene
 
 For a manual catch-all that remains a `segment!` declaration, `raw_path_params(cx)` now returns the encoded tail.
 
-A handler that read one decoded catch-all string must instead declare `path_param!(*path)` and iterate [`PathSegments`](struct.PathSegments.html).
+A handler that read one decoded catch-all string must instead declare `path_param!(*path)` and iterate [`CatchAllSegments`](struct.CatchAllSegments.html).
 
 This declaration generates `Path`; rename the parameter if that conflicts with `std::path::Path`. For an explicit route, rename `{*path}` to match the declaration.

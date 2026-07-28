@@ -159,7 +159,7 @@ async fn post(cx: &Cx) -> Result {
 
 Parsing occurs once per request and the result is memoized.
 
-Prefix the name with `*` to capture the remaining path as decoded segments. After `path_param!(*doc_path)`, `path_param::<DocPath>(cx)` returns [`PathSegments`]. After `path_param!(*ids: u32)`, `path_param::<Ids>(cx)` returns `Result<&[u32], _>`.
+Prefix the name with `*` to capture the remaining path as decoded segments. After `path_param!(*doc_path)`, `path_param::<DocPath>(cx)` returns [`CatchAllSegments`]. After `path_param!(*ids: u32)`, `path_param::<Ids>(cx)` returns `Result<&[u32], _>`.
 
 With [`module_router!`], a declaration inside a non-root route module also changes that module's segment to the parameter. See [`module_router!`] for module structure, nested parameters, and catch-all parameters.
 

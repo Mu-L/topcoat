@@ -1,7 +1,7 @@
 use topcoat::{
     Result,
     context::Cx,
-    router::{PathSegments, Router, error::RouterErrorExt, page, path_param},
+    router::{CatchAllSegments, Router, error::RouterErrorExt, page, path_param},
     view::view,
 };
 
@@ -89,7 +89,7 @@ path_param!(*doc_path);
 
 #[page("/docs/{*doc_path}")]
 async fn document(cx: &Cx) -> Result {
-    let path: PathSegments<'_> = path_param::<DocPath>(cx);
+    let path: CatchAllSegments<'_> = path_param::<DocPath>(cx);
     let path = path.collect::<Vec<_>>().join("][");
     let path = format!("[{path}]");
     view! { (path) }

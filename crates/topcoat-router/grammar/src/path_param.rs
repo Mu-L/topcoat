@@ -119,7 +119,7 @@ impl PathParam {
                 quote! {
                     <T: ::core::iter::IntoIterator<Item: ::core::convert::AsRef<str>>>
                 },
-                quote! { #topcoat_router::PathSegments<'__cx> },
+                quote! { #topcoat_router::CatchAllSegments<'__cx> },
                 self.read_segments(),
             ),
         };
