@@ -35,6 +35,8 @@ async fn post(cx: &Cx) -> Result {
 
 `path_param!` declares the parameter by its URL name and generates the type, `PostId` here, with the visibility the declaration gives it. It replaces today's `#[path_param]` attribute, which cannot declare the generic that a string parameter needs to be constructible. This document assumes that change; its design lands next.
 
+A page that links to `post` imports it alongside the type.
+
 ```rust
 // src/app/posts.rs
 use crate::app::posts::post_id::{PostId, post};
@@ -50,24 +52,6 @@ async fn index() -> Result {
     }
 }
 ```
-
-`href!` expands to `Href::new`, passing the page marker that `#[page]` already generates and the parameters as a tuple.
-
-```rust
-href!(user, OrganizationId(9), UserId(41))
-Href::new(user, (OrganizationId(9), UserId(41)))
-```
-
-The constructor takes a single argument for the parameters because Rust has no variadic functions, so any number of them means a tuple. Zero and one read worst, and zero is what most pages take.
-
-```rust
-Href::new(about, ())
-Href::new(post, (PostId(42),))
-```
-
-`href!` spreads its arguments into that tuple, keeping it out of every link.
-
-`Href::new` stays the real API. It keeps URL building on `Href` instead of a method generated onto every page, and it lets a helper build a URL for a page it takes as an argument. Everything below applies to both forms.
 
 # What href! returns
 
@@ -85,17 +69,46 @@ A page marker renders as its own URL, which covers the parameterless links that 
 <a href=(about)>"About"</a>
 ```
 
-That goes through `Href::new(about, ())`, so a page that later gains a path parameter fails the way any link missing a parameter does.
-
 Elsewhere an `Href` takes a context.
 
 ```rust
 href!(post, PostId(42)).resolve(cx)      // "/posts/42"
 ```
 
-`query`, `fragment`, and `absolute` each return an `Href`, so they chain onto one before it resolves. Comments below show what a URL resolves to.
+`query`, `fragment`, and `absolute` each return an `Href`, so they chain onto one before it resolves.
+
+# Href::new
+
+`href!` expands to `Href::new`, passing the page marker that `#[page]` already generates and the parameters as a tuple.
+
+```rust
+href!(user, OrganizationId(9), UserId(41))
+Href::new(user, (OrganizationId(9), UserId(41)))
+```
+
+The constructor takes a single argument for the parameters because Rust has no variadic functions, so any number of them means a tuple. Zero and one read worst, and zero is what most pages take.
+
+```rust
+Href::new(about, ())
+Href::new(post, (PostId(42),))
+```
+
+`href!` spreads its arguments into that tuple, keeping it out of every link. A rendered page marker goes through `Href::new(about, ())` as well, so a page that later gains a path parameter fails there the way any link missing a parameter does.
+
+`Href::new` stays the real API. It keeps URL building on `Href` instead of a method generated onto every page, and it lets a helper build a URL for a page it takes as an argument. The rest of this document applies to both forms.
 
 # Parameter values
+
+A parameter declared without a type is unparsed: its segment is a string the page reads as is. Reading it needs no more than an unsized `str`, but a link has to construct one, so the generated type is generic over anything that borrows as a string.
+
+```rust
+path_param!(pub slug);      // pub struct Slug<T: AsRef<str>>(pub T);
+
+href!(show, Slug("my-first-post"))    // &str
+href!(show, Slug(post.slug))          // String
+```
+
+`path_param::<Slug>(cx)` still borrows the decoded segment out of the request, so serving a request allocates nothing. The allocation moves to the link, where the value usually came out of a `String` already.
 
 Each value is percent-encoded into its segment, so a title or an address containing `/`, `?`, or `#` stays inside the segment it belongs to.
 
@@ -111,20 +124,9 @@ href!(document, DocPath("guides/getting-started"))    // "/docs/guides/getting-s
 
 An empty value leaves nothing between the slashes, and the `/posts/` it produces no longer matches the route it was built from, so it is rejected when the URL is built.
 
-A parameter declared without a type is unparsed: the page reads its segment as a string. Reading alone could hold that string as an unsized `str`, but a link has to construct the value, so the generated type is generic over anything that borrows as one.
-
-```rust
-path_param!(pub slug);      // pub struct Slug<T: AsRef<str>>(pub T);
-
-href!(show, Slug("my-first-post"))    // &str
-href!(show, Slug(post.slug))          // String
-```
-
-Reading is unaffected: `path_param::<Slug>(cx)` borrows the decoded segment out of the request, allocating nothing. The allocation, if there is one, moves to the link, where the value usually came out of a `String` already.
-
 Group segments never appear in a served URL and take no value, so a page under `app::_marketing::pricing` is reached with `href!(pricing)`.
 
-Linking to a page from outside its own module needs its parameter type there, so `path_param!` takes a visibility and the generated field carries it: `path_param!(pub slug)`. A parameter only ever linked from its own subtree can stay private.
+Linking to a page from outside its own module needs its parameter type there, so `path_param!` takes a visibility, which the generated field carries. A parameter linked only from its own subtree can stay private.
 
 # When mistakes are caught
 
@@ -178,7 +180,7 @@ href!(post, PostId(42)).fragment("comments")      // "/posts/42#comments"
 
 # Absolute URLs
 
-An `Href` renders root-relative, which is what a link inside the site needs. Content that leaves the site needs the absolute form, so a [mail](../crates/topcoat/docs/mail.md) body renders every `Href` absolute. `absolute` and `relative` override that default for one link, which a feed or a sitemap served as a page needs.
+An `Href` renders root-relative, which is what a link inside the site needs. Content that leaves the site needs the absolute form, so a [mail](../crates/topcoat/docs/mail.md) body renders every `Href` absolute. `absolute` and `relative` override that default for one link: a feed or a sitemap is served as a page but its URLs are read elsewhere.
 
 ```rust
 href!(post, PostId(42)).absolute()      // "https://example.com/posts/42"
@@ -190,7 +192,7 @@ The scheme and host come from the [base URL](../crates/topcoat/docs/context.md) 
 let router = Router::builder().base_url("https://example.com").build();
 ```
 
-A router without one falls back to the address it is serving on, so links resolve during development without configuring anything.
+A router without one falls back to the address it serves on, so links resolve in development without configuration.
 
 An application mounted under a path prefix registers it as part of that base URL, as in `https://example.com/app`. The proxy strips the prefix before the router matches, so the router only ever sees `/posts/42` while the browser needs `/app/posts/42`. Relative URLs carry the prefix for that reason, so every `Href` reads the base URL.
 
@@ -208,11 +210,11 @@ async fn create(Form(input): Form<NewPost>) -> Result<SeeOther> {
 }
 ```
 
-`see_other` takes an `Href` and resolves it while building the response, which is where the context is available.
+`see_other` takes an `Href` and resolves it while building the response, where the context is available.
 
 # Resolving outside a view
 
-A handler already holds the context `resolve` needs.
+`resolve` needs a context, and a handler already holds one.
 
 ```rust
 #[route(GET "/feed.xml")]
@@ -228,7 +230,7 @@ let cx = router.cx();
 let url = href!(post, PostId(42)).absolute().resolve(&cx);
 ```
 
-Tests use the same method. A module-derived URL resolves through the route table, so a context built by hand covers only pages with an explicit path.
+A test takes one from the application's router. A module-derived URL resolves through the route table, so a context built by hand covers only pages with an explicit path.
 
 ```rust
 let cx = app::router().cx();
@@ -282,4 +284,4 @@ Href::new(post, PostId(42))       // one argument per path parameter
 Href::new(post, UserId(42))       // does not compile
 ```
 
-That drops the tuple and most of the reason `href!` exists, and it is the only approach that catches a bad link without running the code that builds it. The cost is that route modules compile as one unit and editor tooling follows them less well, so it is worth revisiting after the dynamic form ships rather than in the first iteration.
+That drops the tuple and most of the reason `href!` exists, and it is the only approach that catches a bad link without running the code that builds it. The cost is that route modules compile as one unit and editor tooling follows them less well, so it is worth revisiting once the dynamic form ships.
