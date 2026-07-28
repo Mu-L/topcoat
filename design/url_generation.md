@@ -255,14 +255,6 @@ Reading would special-case `String` the way it special-cases `str` today, so ser
 
 One trait impl on the marker. The risk is two ways to write a link, with the shorter one breaking the moment the page gains a parameter.
 
-**Read a parameter list in attribute position.** `view!` could treat a parenthesized list in `href` or `action` position as a page plus its parameters.
-
-```rust
-<a href=(post, PostId(42))>"Post"</a>
-```
-
-Shortest form, no import. It also gives `(a, b)` a meaning in two attributes that it has nowhere else in `view!`, where parenthesized values are plain Rust.
-
 **Choose the attribute from the element.** A `page` attribute could expand to `href` on an anchor and `action` on a form.
 
 ```rust
@@ -270,7 +262,7 @@ Shortest form, no import. It also gives `(a, b)` a meaning in two attributes tha
 <form page=(create) method="post">
 ```
 
-Removes the last duplication, but invents a non-HTML attribute and hides which one it emits.
+Overloading `href` instead is not available. `AttributeValueViewParts` is implemented for tuples, so a parenthesized list in attribute position already means "render these in order", and `href=(post, PostId(42))` has a meaning today. A new attribute name sidesteps that, at the cost of inventing one that is not HTML and hiding which attribute it produces.
 
 **Check parameters at compile time.** Giving `module_router!` the route tree changes what the macro knows. It can pull in each module body itself, thread a module's parameters down to its children, and generate a typed `href` per page.
 
