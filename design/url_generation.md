@@ -178,9 +178,9 @@ href!(index).query(&[("page", 2)])
 href!(post, PostId(42)).fragment("comments")      // "/posts/42#comments"
 ```
 
-# Absolute URLs
+# Relative and absolute URLs
 
-An `Href` renders root-relative, which is what a link inside the site needs. Content that leaves the site needs the absolute form, so a [mail](../crates/topcoat/docs/mail.md) body renders every `Href` absolute. `absolute` and `relative` override that default for one link: a feed or a sitemap is served as a page but its URLs are read elsewhere.
+Whether an `Href` renders relative or absolute is the rendering context's call. A page renders root-relative, which is what a link inside the site needs. A context that knows its output leaves the site renders absolute, so every `Href` in a [mail](../crates/topcoat/docs/mail.md) body comes out absolute without the link asking for it. `absolute` and `relative` force a mode where the context cannot know: a feed or a sitemap renders as a page, but its URLs are read elsewhere.
 
 ```rust
 href!(post, PostId(42)).absolute()      // "https://example.com/posts/42"
