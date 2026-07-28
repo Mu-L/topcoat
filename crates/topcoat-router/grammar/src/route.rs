@@ -1,7 +1,7 @@
 use proc_macro2::TokenStream;
 use quote::{ToTokens, quote, quote_spanned};
 use syn::{
-    ItemFn, LitStr, Visibility,
+    ItemFn, LitStr, ReturnType, Visibility,
     parse::{Parse, ParseStream},
     parse_quote,
     spanned::Spanned,
@@ -33,6 +33,18 @@ pub struct RouteItem {
 impl Parse for RouteItem {
     fn parse(input: ParseStream) -> syn::Result<Self> {
         let item: ItemFn = input.parse()?;
+        if item.sig.asyncness.is_none() {
+            return Err(syn::Error::new(
+                item.sig.fn_token.span(),
+                "route functions must be async",
+            ));
+        }
+        if let ReturnType::Default = &item.sig.output {
+            return Err(syn::Error::new(
+                item.sig.fn_token.span(),
+                "route functions must declare a return type",
+            ));
+        }
         let args = HandlerArgs::parse(&item, "route")?;
         Ok(Self { item, args })
     }
@@ -121,5 +133,38 @@ impl ToTokens for Route {
         if cfg!(feature = "discover") {
             quote! { #topcoat_inventory::submit! { #ident } }.to_tokens(tokens);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn parse_err(source: &str) -> String {
+        match syn::parse_str::<RouteItem>(source) {
+            Ok(_) => panic!("expected parse error for `{source}`"),
+            Err(err) => err.to_string(),
+        }
+    }
+
+    #[test]
+    fn accepts_async_fn_with_return_type() {
+        syn::parse_str::<RouteItem>("async fn ping(cx: &Cx) -> Result { todo!() }").unwrap();
+    }
+
+    #[test]
+    fn rejects_non_async_fn() {
+        assert!(parse_err("fn ping() -> Result { todo!() }").contains("must be async"));
+    }
+
+    #[test]
+    fn rejects_missing_return_type() {
+        assert!(parse_err("async fn ping() {}").contains("must declare a return type"));
+    }
+
+    #[test]
+    fn rejects_self_receiver() {
+        let err = parse_err("async fn ping(&self) -> Result { todo!() }");
+        assert!(err.contains("route functions cannot take a `self` receiver"));
     }
 }

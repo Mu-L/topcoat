@@ -8,6 +8,8 @@ use topcoat::{
 
 #[tokio::main]
 async fn main() {
+    // Load the browser runtime assets, discover the page and procedure,
+    // and start the server at http://127.0.0.1:3000 by default.
     topcoat::start(
         Router::builder()
             .assets(AssetBundle::load().unwrap())
@@ -24,16 +26,24 @@ async fn home() -> Result {
         <!DOCTYPE html>
         <html>
             <head>
+                // Reload the browser automatically during development.
                 topcoat::dev::script()
+
+                // Load the Topcoat browser runtime required by signals,
+                // event handlers, and procedure calls.
                 topcoat::runtime::script()
             </head>
             <body>
+                // This signal stores the current value of the input in the browser.
                 signal input = String::new();
 
                 <input
                     :value=$(input.get())
                     @change=$(|e: Event| input.set(e.target.value))
                 >
+                // Keep the input value synchronized with the signal.
+
+                // Update the signal when the input change event fires.
 
                 <button
                     @click=$(async |_e| {
@@ -41,6 +51,8 @@ async fn home() -> Result {
                         input.set(server_response);
                     })
                 >
+                    // Call the Rust procedure on the server and replace the input
+                    // value with the response returned by the server.
                     "Print on server"
                 </button>
             </body>
@@ -48,6 +60,8 @@ async fn home() -> Result {
     }
 }
 
+// A procedure is an async Rust function that can be called from a browser
+// runtime expression. Its arguments must be treated as untrusted input.
 #[procedure]
 pub async fn print_on_server(input: String) -> Result<String> {
     println!("{input}");
