@@ -9,7 +9,7 @@ use syn::{
 };
 use topcoat_core_grammar::paths::topcoat_router;
 
-mod kw {
+pub mod kw {
     syn::custom_keyword!(error);
     syn::custom_keyword!(bad_request);
     syn::custom_keyword!(forbidden);
@@ -26,17 +26,27 @@ mod kw {
 /// and stands for the user-facing error response returned when the parameter
 /// fails to parse.
 pub struct ErrorAttr {
-    kind: ErrorKind,
-    args: Vec<Expr>,
+    pub error_token: kw::error,
+    pub eq_token: Token![=],
+    pub kind: ErrorKind,
+    pub args: Option<ErrorArgs>,
+}
+
+/// The parenthesized arguments passed to an error constructor.
+pub struct ErrorArgs {
+    pub paren_token: Paren,
+    pub args: Punctuated<Expr, Token![,]>,
 }
 
 impl ErrorAttr {
     /// The span of the constructor name, for attaching validation errors.
+    #[must_use]
     pub fn span(&self) -> Span {
         self.kind.keyword().span()
     }
 
     /// The router error type the constructor produces.
+    #[must_use]
     pub fn ty(&self) -> TokenStream {
         match self.kind {
             ErrorKind::BadRequest(_) => quote! { #topcoat_router::error::BadRequestError },
@@ -56,13 +66,17 @@ impl ErrorAttr {
     /// with, so the macro's `default_bad_request` handler (a closure from the
     /// original parse error to the response) is used instead. All other
     /// constructor calls are checked by the compiler.
+    #[must_use]
     pub fn map_err(&self, default_bad_request: TokenStream) -> TokenStream {
-        let handler = if matches!(self.kind, ErrorKind::BadRequest(_)) && self.args.is_empty() {
+        let args = self
+            .args
+            .as_ref()
+            .map_or_else(Punctuated::new, |args| args.args.clone());
+        let handler = if matches!(self.kind, ErrorKind::BadRequest(_)) && args.is_empty() {
             default_bad_request
         } else {
             let name = self.kind.keyword();
-            let args = &self.args;
-            quote! { |_| #topcoat_router::error::#name(#(#args),*) }
+            quote! { |_| #topcoat_router::error::#name(#args) }
         };
         quote! { .map_err(#handler) }
     }
@@ -70,24 +84,24 @@ impl ErrorAttr {
 
 impl Parse for ErrorAttr {
     fn parse(input: ParseStream) -> syn::Result<Self> {
-        input.parse::<kw::error>()?;
-        input.parse::<Token![=]>()?;
         Ok(Self {
+            error_token: input.parse()?,
+            eq_token: input.parse()?,
             kind: input.parse()?,
             args: if input.peek(Paren) {
                 let content;
-                syn::parenthesized!(content in input);
-                Punctuated::<Expr, Token![,]>::parse_terminated(&content)?
-                    .into_iter()
-                    .collect()
+                Some(ErrorArgs {
+                    paren_token: syn::parenthesized!(content in input),
+                    args: Punctuated::parse_terminated(&content)?,
+                })
             } else {
-                Vec::new()
+                None
             },
         })
     }
 }
 
-enum ErrorKind {
+pub enum ErrorKind {
     BadRequest(kw::bad_request),
     Forbidden(kw::forbidden),
     NotFound(kw::not_found),

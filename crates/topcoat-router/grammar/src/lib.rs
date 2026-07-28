@@ -1,6 +1,6 @@
 #![cfg_attr(docsrs, feature(doc_cfg))]
 
-mod error_attr;
+pub mod error_attr;
 mod handler_args;
 pub mod layer;
 pub mod layout;

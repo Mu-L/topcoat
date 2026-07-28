@@ -57,7 +57,7 @@ fn request_id(cx: &Cx) -> Option<&str> {
 
 # Path and query helpers
 
-The attribute macros [`#[path_param]`](macro@crate::router::path_param) and [`#[query_params]`](macro@crate::router::query_params) declare typed structs that you read with the [`path_param::<T>(cx)`](fn@crate::router::path_param) and [`query_params::<T>(cx)`](fn@crate::router::query_params) functions. They parse lazily and memoize the parsed value for the request.
+The [`path_param!`](macro@crate::router::path_param) macro and [`#[query_params]`](macro@crate::router::query_params) attribute declare typed values that you read with the [`path_param::<T>(cx)`](fn@crate::router::path_param) and [`query_params::<T>(cx)`](fn@crate::router::query_params) functions. Topcoat parses typed path parameters and query structs lazily and memoizes them for the request.
 
 ```rust
 use topcoat::{
@@ -67,8 +67,7 @@ use topcoat::{
     view::view,
 };
 
-#[path_param(error = bad_request)]
-struct PostId(uuid::Uuid);
+path_param!(post_id: uuid::Uuid, error = bad_request);
 
 #[query_params(error = bad_request)]
 struct PostQuery {
@@ -88,7 +87,7 @@ async fn post(cx: &Cx) -> Result {
 }
 ```
 
-This means your params are available anywhere you have access to a `cx`. See the attribute macro's documentation for more details.
+Any function with `&Cx` can read these values.
 
 # App and request context helpers
 

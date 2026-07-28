@@ -9,7 +9,8 @@ use topcoat_core::context::{ContextMap, CxBuilder};
 
 use crate::{
     Endpoint, Layer, LayerId, Layers, LayoutFn, Methods, Next, PageFn, PageWithLayouts,
-    PathSegment, RawPathParams, Request, Response, Route, Terminal, error::respond,
+    PathSegment, RawPathParamSpec, RawPathParams, Request, Response, Route, Terminal,
+    error::respond,
 };
 
 /// A finalized Topcoat routing table.
@@ -490,17 +491,20 @@ impl RouterBuilder {
                     let path_params = route
                         .path()
                         .segments()
-                        .filter_map(|segment| match segment {
-                            // A catch-all is captured by matchit like a param,
-                            // so it needs a key here too.
-                            PathSegment::Param(param) | PathSegment::CatchAll(param) => {
-                                let interned =
-                                    interned_path_params.entry(param).or_insert_with(|| {
-                                        Arc::from(param.to_owned().into_boxed_str())
-                                    });
-                                Some(interned.clone())
-                            }
-                            _ => None,
+                        .filter_map(|segment| {
+                            let (param, is_catch_all) = match segment {
+                                PathSegment::Param(param) => (param, false),
+                                PathSegment::CatchAll(param) => (param, true),
+                                _ => return None,
+                            };
+                            let interned = interned_path_params
+                                .entry(param)
+                                .or_insert_with(|| Arc::from(param.to_owned().into_boxed_str()));
+                            Some(if is_catch_all {
+                                RawPathParamSpec::catch_all(interned.clone())
+                            } else {
+                                RawPathParamSpec::segment(interned.clone())
+                            })
                         })
                         .collect();
                     let endpoint =
@@ -835,9 +839,9 @@ mod tests {
                 echo_params,
             ))
             .build();
-        // The catch-all captures the remainder of the URL, slashes included.
-        let (_, _, body) = send(&router, Method::GET, "/files/a/b/c");
-        assert_eq!(&body[..], b"rest=a/b/c");
+        // The raw catch-all keeps the encoded remainder, slashes included.
+        let (_, _, body) = send(&router, Method::GET, "/files/a%2Fb/c%20d");
+        assert_eq!(&body[..], b"rest=a%2Fb/c%20d");
     }
 
     // -- Router::handle: method sets --

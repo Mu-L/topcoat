@@ -501,7 +501,7 @@ mod tests {
     #[test]
     fn run_resolves_the_method_not_allowed_terminal() {
         let layers = Layers::default();
-        let no_params: Box<[Arc<str>]> = Box::new([]);
+        let no_params: Box<[crate::RawPathParamSpec]> = Box::new([]);
         let no_layers: Box<[LayerId]> = Box::new([]);
         let mut endpoint = Endpoint::new(no_params, no_layers);
         endpoint.insert(Method::GET, 0);

@@ -11,7 +11,9 @@ Explicit route paths use Topcoat's [`Path`] syntax:
 - `/docs/{*path}` for a catch-all parameter that matches one or more remaining segments.
 - `/(marketing)/pricing` for groups. Groups participate in layout and layer matching but are stripped from the served URL, so this example serves `/pricing`.
 
-The root path is `/`. Non-root paths must start with `/` and may not contain empty segments. Parameter and group names must start with an ASCII letter or `_` and contain only ASCII letters, digits, and underscores. Captured parameter values are percent-decoded after the router matches the path.
+The root path is `/`. Non-root paths must start with `/` and may not contain empty segments. Parameter and group names must start with an ASCII letter or `_` and contain only ASCII letters, digits, and underscores.
+
+Single-segment parameter values are percent-decoded after the router matches the path. Raw catch-all captures keep the encoded tail; typed catch-alls decode each segment separately.
 
 # Pages
 
@@ -132,10 +134,10 @@ Path and query values are read from [`Cx`](crate::context::Cx), not injected as 
 
 ## Path parameters
 
-Apply [`#[path_param]`](macro@path_param) to a tuple struct with one field. The snake-cased struct name is the parameter name, so `PostId` reads `{post_id}`. The inner type controls parsing:
+Call [`path_param!`](macro@path_param) with the parameter name from the URL. The macro generates a Pascal-cased type, so `path_param!(post_id: u64)` declares `PostId` for `{post_id}`:
 
-- `str` returns the percent-decoded segment as `&str`.
-- Any other type is parsed with [`FromStr`](std::str::FromStr). The default return type is `Result<&T, &T::Err>`.
+- After `path_param!(slug)`, `path_param::<Slug>(cx)` returns the percent-decoded segment as `&str`.
+- A type after `:` is parsed with [`FromStr`](std::str::FromStr). The default return type is `Result<&T, &<T as FromStr>::Err>`.
 - `error = bad_request`, `not_found`, `unauthorized`, `forbidden`, `redirect(...)`, or `redirect_permanent(...)` maps a parse failure to that router error.
 
 ```rust
@@ -146,8 +148,7 @@ use topcoat::{
     view::view,
 };
 
-#[path_param(error = bad_request)]
-struct PostId(u64);
+path_param!(post_id: u64, error = bad_request);
 
 #[page("/posts/{post_id}")]
 async fn post(cx: &Cx) -> Result {
@@ -156,7 +157,11 @@ async fn post(cx: &Cx) -> Result {
 }
 ```
 
-Parsing occurs once per request and the result is memoized. With [`module_router!`], declaring `#[path_param]` inside a non-root route module also changes that module's segment to the parameter. See [`module_router!`] for module structure, nested parameters, and catch-all parameters.
+Parsing occurs once per request and the result is memoized.
+
+Prefix the name with `*` to capture the remaining path as decoded segments. After `path_param!(*doc_path)`, `path_param::<DocPath>(cx)` returns [`PathSegments`]. After `path_param!(*ids: u32)`, `path_param::<Ids>(cx)` returns `Result<&[u32], _>`.
+
+With [`module_router!`], a declaration inside a non-root route module also changes that module's segment to the parameter. See [`module_router!`] for module structure, nested parameters, and catch-all parameters.
 
 ## Query parameters
 

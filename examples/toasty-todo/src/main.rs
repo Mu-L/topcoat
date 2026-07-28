@@ -140,8 +140,7 @@ async fn create(cx: &Cx, Form(new_todo): Form<NewTodo>) -> Result<SeeOther> {
     Ok(see_other("/"))
 }
 
-#[path_param(error = bad_request)]
-struct TodoId(u64);
+path_param!(todo_id: u64, error = bad_request);
 
 #[route(POST "/todos/{todo_id}/toggle")]
 async fn toggle(cx: &Cx) -> Result<SeeOther> {
