@@ -25,7 +25,7 @@ Path parameters are the [`path_param!`](../crates/topcoat-router/macro/docs/path
 
 ```rust
 // src/app/posts/post_id.rs
-path_param!(post_id: u64, error = not_found);
+path_param!(pub post_id: u64, error = not_found);
 
 #[page]
 async fn post(cx: &Cx) -> Result {
@@ -33,7 +33,7 @@ async fn post(cx: &Cx) -> Result {
 }
 ```
 
-`path_param!` declares the parameter by its URL name and generates the type, `PostId` here. It replaces today's `#[path_param]` attribute, which cannot declare the generic that a string parameter needs to be constructible. This document assumes that change; its design lands next.
+`path_param!` declares the parameter by its URL name and generates the type, `PostId` here, with the visibility the declaration gives it. It replaces today's `#[path_param]` attribute, which cannot declare the generic that a string parameter needs to be constructible. This document assumes that change; its design lands next.
 
 ```rust
 // src/app/posts.rs
@@ -114,7 +114,7 @@ An empty value leaves nothing between the slashes, and the `/posts/` it produces
 A parameter declared without a type is unparsed: the page reads its segment as a string. Reading alone could hold that string as an unsized `str`, but a link has to construct the value, so the generated type is generic over anything that borrows as one.
 
 ```rust
-path_param!(slug);      // pub struct Slug<T: AsRef<str>>(pub T);
+path_param!(pub slug);      // pub struct Slug<T: AsRef<str>>(pub T);
 
 href!(show, Slug("my-first-post"))    // &str
 href!(show, Slug(post.slug))          // String
@@ -124,7 +124,7 @@ Reading is unaffected: `path_param::<Slug>(cx)` borrows the decoded segment out 
 
 Group segments never appear in a served URL and take no value, so a page under `app::_marketing::pricing` is reached with `href!(pricing)`.
 
-Linking to a page from outside its own module needs its parameter type, so `path_param!` generates a public type with a public field.
+Linking to a page from outside its own module needs its parameter type there, so `path_param!` takes a visibility and the generated field carries it: `path_param!(pub slug)`. A parameter only ever linked from its own subtree can stay private.
 
 # When mistakes are caught
 
