@@ -1,4 +1,5 @@
 use std::borrow::Cow;
+use std::panic::Location;
 
 use crate::{OwnedMethods, Path, RouteFn, RouteHandlerFn};
 
@@ -16,10 +17,13 @@ pub struct ModuleRouteFn {
     module_path: &'static str,
     /// The route's async handler function, returning a [`Result`].
     pub(super) render: RouteHandlerFn,
+    /// Where the route was declared.
+    source_location: &'static Location<'static>,
 }
 
 impl ModuleRouteFn {
     /// Creates a new module route. Called by the expanded `#[route]` macro.
+    #[track_caller]
     pub const fn new(
         methods: OwnedMethods,
         module_path: &'static str,
@@ -29,13 +33,14 @@ impl ModuleRouteFn {
             methods,
             module_path,
             render,
+            source_location: Location::caller(),
         }
     }
 
     /// Converts into a [`RouteFn`] with the given resolved URL path.
     #[must_use]
     pub fn into_route(self, path: Cow<'static, Path>) -> RouteFn {
-        RouteFn::new(self.methods, path, self.render)
+        RouteFn::with_source_location(self.methods, path, self.render, self.source_location)
     }
 
     /// Returns the module path used to derive the URL.

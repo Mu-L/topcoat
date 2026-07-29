@@ -203,6 +203,39 @@ impl Path {
         return self.segments().zip(other.segments()).all(|(a, b)| a == b);
     }
 
+    /// Returns the first differently named dynamic segment when `other` has
+    /// the same segment shape as a prefix of this path.
+    ///
+    /// Static and group segments must match exactly, while parameter and
+    /// catch-all segments must have the same kind. A different path shape or a
+    /// longer `other` path returns `None`.
+    pub(crate) fn parameter_name_mismatch<'path, 'prefix>(
+        &'path self,
+        other: &'prefix Path,
+    ) -> Option<(PathSegment<'path>, PathSegment<'prefix>)> {
+        let mut segments = self.segments();
+        let mut mismatch = None;
+
+        for other_segment in other.segments() {
+            let segment = segments.next()?;
+            match (segment, other_segment) {
+                (PathSegment::Param(path), PathSegment::Param(prefix)) if path != prefix => {
+                    mismatch.get_or_insert((PathSegment::Param(path), PathSegment::Param(prefix)));
+                }
+                (PathSegment::CatchAll(path), PathSegment::CatchAll(prefix)) if path != prefix => {
+                    mismatch.get_or_insert((
+                        PathSegment::CatchAll(path),
+                        PathSegment::CatchAll(prefix),
+                    ));
+                }
+                (segment, other_segment) if segment == other_segment => {}
+                _ => return None,
+            }
+        }
+
+        mismatch
+    }
+
     /// Returns `true` if `url`, a concrete URL path, matches this route path
     /// exactly.
     ///
@@ -827,6 +860,47 @@ mod tests {
         let path = Path::new("/users/{id}/posts");
         assert!(path.starts_with(Path::new("/users/{id}")));
         assert!(!path.starts_with(Path::new("/users/{user_id}")));
+    }
+
+    #[test]
+    fn parameter_name_mismatch_finds_equivalent_prefix() {
+        assert_eq!(
+            Path::new("/users/{user_id}/posts").parameter_name_mismatch(Path::new("/users/{id}")),
+            Some((PathSegment::Param("user_id"), PathSegment::Param("id"))),
+        );
+        assert_eq!(
+            Path::new("/files/{*file_path}").parameter_name_mismatch(Path::new("/files/{*path}")),
+            Some((
+                PathSegment::CatchAll("file_path"),
+                PathSegment::CatchAll("path"),
+            )),
+        );
+    }
+
+    #[test]
+    fn parameter_name_mismatch_requires_equivalent_prefix_shape() {
+        assert_eq!(
+            Path::new("/users/{id}").parameter_name_mismatch(Path::new("/posts/{user_id}")),
+            None,
+        );
+        assert_eq!(
+            Path::new("/users/{*rest}").parameter_name_mismatch(Path::new("/users/{id}")),
+            None,
+        );
+        assert_eq!(
+            Path::new("/users/{id}/settings")
+                .parameter_name_mismatch(Path::new("/users/{user_id}/profile")),
+            None,
+        );
+        assert_eq!(
+            Path::new("/(auth)/users/{id}")
+                .parameter_name_mismatch(Path::new("/(tenant)/users/{user_id}")),
+            None,
+        );
+        assert_eq!(
+            Path::new("/users/{id}").parameter_name_mismatch(Path::new("/users/{user_id}/posts")),
+            None,
+        );
     }
 
     #[test]

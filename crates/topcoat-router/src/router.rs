@@ -2,6 +2,8 @@ use std::any::{Any, type_name};
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::fmt;
+use std::ops::Deref;
+use std::panic::Location;
 use std::sync::Arc;
 
 use topcoat_core::base_url::BaseUrl;
@@ -147,13 +149,39 @@ impl Router {
 /// }
 /// ```
 pub struct RouterBuilder {
-    routes: Vec<Box<dyn Route>>,
+    routes: Vec<RegisteredRoute>,
     pages: Vec<PageFn>,
     layouts: Vec<LayoutFn>,
     layers: Layers,
     context: ContextMap,
     #[cfg(feature = "compression")]
     compression: crate::Compression,
+}
+
+/// A route paired with the source location used by router diagnostics.
+struct RegisteredRoute {
+    route: Box<dyn Route>,
+    source_location: &'static Location<'static>,
+}
+
+impl RegisteredRoute {
+    /// Registers `route`, preferring its declaration site over this call site.
+    #[track_caller]
+    fn new(route: impl Route) -> Self {
+        let source_location = route.source_location().unwrap_or(Location::caller());
+        Self {
+            route: Box::new(route),
+            source_location,
+        }
+    }
+}
+
+impl Deref for RegisteredRoute {
+    type Target = dyn Route;
+
+    fn deref(&self) -> &Self::Target {
+        &*self.route
+    }
 }
 
 impl RouterBuilder {
@@ -188,8 +216,9 @@ impl RouterBuilder {
     /// method routes and one any-method route can share a path; the specific
     /// method wins at dispatch.
     #[must_use]
+    #[track_caller]
     pub fn route(mut self, route: impl Route) -> Self {
-        self.routes.push(Box::new(route));
+        self.routes.push(RegisteredRoute::new(route));
         self
     }
 
@@ -271,6 +300,7 @@ impl RouterBuilder {
     /// first (outermost), so `.layer(a).layer(b)` runs `b` around `a` when both
     /// sit at the same path.
     #[must_use]
+    #[track_caller]
     pub fn layer(mut self, layer: impl Layer) -> Self {
         self.layers.push(Box::new(layer));
         self
@@ -451,6 +481,10 @@ impl RouterBuilder {
     /// `/(b)/x` with a layer at `/(a)`): every route at a path shares one layer
     /// stack, so the divergence is rejected rather than resolved by
     /// registration order.
+    ///
+    /// A layer and route whose dynamic prefixes have the same shape must use
+    /// the same parameter names. A mismatch is rejected because the layer
+    /// would otherwise be omitted from that route.
     #[must_use]
     pub fn build(self) -> Router {
         let RouterBuilder {
@@ -472,7 +506,7 @@ impl RouterBuilder {
                 .cloned()
                 .collect();
             matching.sort_by_key(|layout| layout.path().len());
-            routes.push(Box::new(PageWithLayouts::new(page, matching)));
+            routes.push(RegisteredRoute::new(PageWithLayouts::new(page, matching)));
         }
 
         // Group routes that share a path into a single endpoint first, since
@@ -483,6 +517,7 @@ impl RouterBuilder {
         let mut grouped: HashMap<Cow<'static, str>, (usize, Endpoint)> = HashMap::new();
         let mut interned_path_params: HashMap<&str, Arc<str>> = HashMap::new();
         for (index, route) in routes.iter().enumerate() {
+            layers.validate_endpoint(route.path(), route.source_location);
             let layer_stack = layers.for_endpoint(route.path());
             let (first, endpoint) = grouped
                 .entry(route.path().to_matchit_path())
@@ -559,6 +594,11 @@ impl RouterBuilder {
                 .unwrap_or_else(|error| panic!("failed to register route {path:?}: {error}"));
         }
 
+        let routes = routes
+            .into_iter()
+            .map(|registration| registration.route)
+            .collect();
+
         Router {
             routes,
             endpoints,
@@ -578,7 +618,9 @@ impl Default for RouterBuilder {
 
 #[cfg(test)]
 mod tests {
+    use std::any::Any;
     use std::future::Future;
+    use std::panic::{AssertUnwindSafe, catch_unwind};
     use std::pin::Pin;
     use std::sync::Mutex;
 
@@ -621,6 +663,18 @@ mod tests {
         let (parts, body) = response.into_parts();
         let bytes = block_on(to_bytes(body, usize::MAX)).unwrap();
         (parts.status, parts.headers, bytes)
+    }
+
+    fn panic_message(payload: &(dyn Any + Send)) -> String {
+        payload
+            .downcast_ref::<String>()
+            .cloned()
+            .or_else(|| {
+                payload
+                    .downcast_ref::<&str>()
+                    .map(|message| (*message).into())
+            })
+            .expect("panic payload should be a string")
     }
 
     // A handful of plain handler functions, since `Route`/`Layer` are backed by
@@ -999,6 +1053,79 @@ mod tests {
 
         send(&router, Method::GET, "/admin/x");
         assert_eq!(*trace.lock().unwrap(), vec!["admin"]);
+    }
+
+    #[test]
+    fn dynamic_layer_wraps_route_with_the_same_parameter_name() {
+        let (router, trace) = trace_router(
+            RouterBuilder::new()
+                .route(RouteFn::new(
+                    Method::GET,
+                    path("/users/{id}/settings"),
+                    say_route,
+                ))
+                .layer(LayerFn::new(path("/users/{id}"), trace_admin)),
+        );
+
+        let (status, _, _) = send(&router, Method::GET, "/users/42/settings");
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(*trace.lock().unwrap(), vec!["admin"]);
+    }
+
+    #[test]
+    fn parameter_name_mismatch_panics_with_both_source_locations() {
+        let layer_line = line!() + 1;
+        let layer = LayerFn::new(path("/users/{id}"), trace_admin);
+        let route_line = line!() + 1;
+        let route = RouteFn::new(Method::GET, path("/users/{user_id}/settings"), say_route);
+
+        let Err(payload) = catch_unwind(AssertUnwindSafe(|| {
+            RouterBuilder::new().route(route).layer(layer).build()
+        })) else {
+            panic!("parameter name mismatch should panic");
+        };
+        let message = panic_message(&*payload);
+
+        assert!(message.contains("parameter name mismatch between layer and route"));
+        assert!(message.contains("layer `/users/{id}`"));
+        assert!(message.contains("route `/users/{user_id}/settings`"));
+        assert!(message.contains("layer uses `{id}` where the route uses `{user_id}`"));
+        assert!(message.contains(&format!("{}:{layer_line}:", file!())));
+        assert!(message.contains(&format!("{}:{route_line}:", file!())));
+        assert!(message.contains("use the same parameter name in both declarations"));
+    }
+
+    #[test]
+    fn catch_all_parameter_name_mismatch_panics_for_pages() {
+        let Err(payload) = catch_unwind(AssertUnwindSafe(|| {
+            RouterBuilder::new()
+                .page(PageFn::new(
+                    Method::GET,
+                    path("/files/{*file_path}"),
+                    render_page,
+                ))
+                .layer(LayerFn::new(path("/files/{*path}"), trace_admin))
+                .build()
+        })) else {
+            panic!("catch-all parameter name mismatch should panic");
+        };
+        let message = panic_message(&*payload);
+
+        assert!(message.contains("layer `/files/{*path}`"));
+        assert!(message.contains("route `/files/{*file_path}`"));
+        assert!(message.contains("layer uses `{*path}` where the route uses `{*file_path}`"));
+    }
+
+    #[test]
+    fn different_dynamic_paths_do_not_conflict() {
+        let _ = RouterBuilder::new()
+            .route(RouteFn::new(
+                Method::GET,
+                path("/users/{user_id}"),
+                say_route,
+            ))
+            .layer(LayerFn::new(path("/teams/{team_id}"), trace_admin))
+            .build();
     }
 
     #[test]

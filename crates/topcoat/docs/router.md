@@ -85,7 +85,7 @@ async fn timing(cx: &mut CxBuilder, body: Body, next: Next<'_>) -> Result<Respon
 }
 ```
 
-Layers follow the same prefix rule as layouts and nest from least specific (outermost) to most specific (innermost). See [`#[layer]`](layer) for the exact matching and ordering rules.
+Layers follow the same prefix rule as layouts and nest from least specific (outermost) to most specific (innermost). When a layer and route share a dynamic prefix, use the same parameter name in both paths. For example, a layer at `/users/{id}` wraps `/users/{id}/settings`; a route at `/users/{user_id}/settings` is invalid. See [`#[layer]`](layer) for the exact matching and ordering rules.
 
 # API routes
 

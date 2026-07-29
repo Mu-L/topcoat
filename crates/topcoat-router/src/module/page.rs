@@ -1,4 +1,5 @@
 use std::borrow::Cow;
+use std::panic::Location;
 
 use crate::{LayoutFn, LayoutRenderFn, OwnedMethods, PageFn, PageRenderFn, Path};
 
@@ -16,10 +17,13 @@ pub struct ModulePageFn {
     module_path: &'static str,
     /// The page's async render function, returning a [`Result`].
     pub(super) render: PageRenderFn,
+    /// Where the page was declared.
+    source_location: &'static Location<'static>,
 }
 
 impl ModulePageFn {
     /// Creates a new module page. Called by the expanded `#[page]` macro.
+    #[track_caller]
     pub const fn new(
         methods: OwnedMethods,
         module_path: &'static str,
@@ -29,13 +33,14 @@ impl ModulePageFn {
             methods,
             module_path,
             render,
+            source_location: Location::caller(),
         }
     }
 
     /// Converts into a [`PageFn`] with the given resolved URL path.
     #[must_use]
     pub fn into_page(self, path: Cow<'static, Path>) -> PageFn {
-        PageFn::new(self.methods, path, self.render)
+        PageFn::with_source_location(self.methods, path, self.render, self.source_location)
     }
 
     /// Returns the module path used to derive the URL.

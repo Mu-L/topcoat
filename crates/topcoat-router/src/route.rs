@@ -1,4 +1,4 @@
-use std::{borrow::Cow, pin::Pin};
+use std::{borrow::Cow, panic::Location, pin::Pin};
 
 use topcoat_core::{context::Cx, error::Result};
 
@@ -20,6 +20,12 @@ pub trait Route: Send + Sync + 'static {
     /// The URL path this route handles.
     fn path(&self) -> &Path;
 
+    /// Returns where this route was declared or registered.
+    #[doc(hidden)]
+    fn source_location(&self) -> Option<&'static Location<'static>> {
+        None
+    }
+
     /// Handles a request, producing a response.
     fn handle<'cx>(&'cx self, cx: &'cx Cx, body: Body) -> RouteFuture<'cx>;
 }
@@ -40,6 +46,8 @@ pub struct RouteFn {
     path: Cow<'static, Path>,
     /// The handler function that produces the response.
     handle: RouteHandlerFn,
+    /// Where the route was declared.
+    source_location: &'static Location<'static>,
 }
 
 impl RouteFn {
@@ -63,6 +71,7 @@ impl RouteFn {
     /// # Panics
     ///
     /// Panics if `path` is a string that is not a well-formed route path.
+    #[track_caller]
     pub fn new(
         methods: impl Into<OwnedMethods>,
         path: impl IntoPath,
@@ -72,15 +81,27 @@ impl RouteFn {
     }
 
     /// Const-context constructor used by macro-generated code.
+    #[track_caller]
     pub const fn const_new(
         methods: OwnedMethods,
         path: Cow<'static, Path>,
         handle: RouteHandlerFn,
     ) -> Self {
+        Self::with_source_location(methods, path, handle, Location::caller())
+    }
+
+    /// Const-context constructor that preserves an earlier declaration site.
+    pub(crate) const fn with_source_location(
+        methods: OwnedMethods,
+        path: Cow<'static, Path>,
+        handle: RouteHandlerFn,
+        source_location: &'static Location<'static>,
+    ) -> Self {
         Self {
             methods,
             path,
             handle,
+            source_location,
         }
     }
 }
@@ -92,6 +113,10 @@ impl Route for RouteFn {
 
     fn path(&self) -> &Path {
         &self.path
+    }
+
+    fn source_location(&self) -> Option<&'static Location<'static>> {
+        Some(self.source_location)
     }
 
     fn handle<'cx>(&'cx self, cx: &'cx Cx, body: Body) -> RouteFuture<'cx> {

@@ -1,4 +1,5 @@
 use std::borrow::Cow;
+use std::panic::Location;
 use std::pin::Pin;
 
 use topcoat_core::{context::Cx, error::Result};
@@ -30,6 +31,8 @@ pub struct PageFn {
     path: Cow<'static, Path>,
     /// The async render function that produces the page [`View`].
     render: PageRenderFn,
+    /// Where the page was declared.
+    source_location: &'static Location<'static>,
 }
 
 impl PageFn {
@@ -42,6 +45,7 @@ impl PageFn {
     /// # Panics
     ///
     /// Panics if `path` is a string that is not a well-formed route path.
+    #[track_caller]
     pub fn new(
         methods: impl Into<OwnedMethods>,
         path: impl IntoPath,
@@ -51,15 +55,27 @@ impl PageFn {
     }
 
     /// Const-context constructor used by macro-generated code.
+    #[track_caller]
     pub const fn const_new(
         methods: OwnedMethods,
         path: Cow<'static, Path>,
         render: PageRenderFn,
     ) -> Self {
+        Self::with_source_location(methods, path, render, Location::caller())
+    }
+
+    /// Const-context constructor that preserves an earlier declaration site.
+    pub(crate) const fn with_source_location(
+        methods: OwnedMethods,
+        path: Cow<'static, Path>,
+        render: PageRenderFn,
+        source_location: &'static Location<'static>,
+    ) -> Self {
         Self {
             methods,
             path,
             render,
+            source_location,
         }
     }
 
@@ -73,6 +89,11 @@ impl PageFn {
     #[must_use]
     pub fn path(&self) -> &Path {
         &self.path
+    }
+
+    /// Returns where this page was declared.
+    pub(crate) fn source_location(&self) -> &'static Location<'static> {
+        self.source_location
     }
 
     /// Renders the page, returning a [`Result`].
@@ -159,6 +180,10 @@ impl Route for PageWithLayouts {
 
     fn path(&self) -> &Path {
         &self.page.path
+    }
+
+    fn source_location(&self) -> Option<&'static Location<'static>> {
+        Some(self.page.source_location())
     }
 
     fn handle<'cx>(&'cx self, cx: &'cx Cx, body: Body) -> RouteFuture<'cx> {

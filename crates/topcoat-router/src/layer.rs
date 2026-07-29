@@ -1,5 +1,6 @@
 use std::borrow::Cow;
 use std::ops::Index;
+use std::panic::Location;
 use std::pin::Pin;
 
 use topcoat_core::{context::CxBuilder, error::Result};
@@ -62,6 +63,12 @@ pub trait Layer: Send + Sync + 'static {
     /// The URL path prefix whose routes this layer wraps.
     fn path(&self) -> &Path;
 
+    /// Returns where this layer was declared or registered.
+    #[doc(hidden)]
+    fn source_location(&self) -> Option<&'static Location<'static>> {
+        None
+    }
+
     /// Handles a request, calling `next` to continue down the chain.
     fn handle<'a>(&'a self, cx: &'a mut CxBuilder, body: Body, next: Next<'a>) -> LayerFuture<'a>;
 }
@@ -82,18 +89,38 @@ pub struct LayerFn {
     path: Cow<'static, Path>,
     /// The handler function that wraps the inner chain.
     handle: LayerHandlerFn,
+    /// Where the layer was declared.
+    source_location: &'static Location<'static>,
 }
 
 impl LayerFn {
     /// Creates a new layer with an explicit path prefix and handler function.
+    #[track_caller]
     pub const fn new(path: Cow<'static, Path>, handle: LayerHandlerFn) -> Self {
-        Self { path, handle }
+        Self::with_source_location(path, handle, Location::caller())
+    }
+
+    /// Const-context constructor that preserves an earlier declaration site.
+    pub(crate) const fn with_source_location(
+        path: Cow<'static, Path>,
+        handle: LayerHandlerFn,
+        source_location: &'static Location<'static>,
+    ) -> Self {
+        Self {
+            path,
+            handle,
+            source_location,
+        }
     }
 }
 
 impl Layer for LayerFn {
     fn path(&self) -> &Path {
         &self.path
+    }
+
+    fn source_location(&self) -> Option<&'static Location<'static>> {
+        Some(self.source_location)
     }
 
     fn handle<'a>(&'a self, cx: &'a mut CxBuilder, body: Body, next: Next<'a>) -> LayerFuture<'a> {
@@ -116,14 +143,25 @@ pub(crate) struct LayerId(usize);
 /// indexing by [`LayerId`] resolves a selected id back to its layer.
 #[derive(Default)]
 pub(crate) struct Layers {
-    layers: Vec<Box<dyn Layer>>,
+    layers: Vec<RegisteredLayer>,
+}
+
+/// A layer paired with the source location used by router diagnostics.
+struct RegisteredLayer {
+    layer: Box<dyn Layer>,
+    source_location: &'static Location<'static>,
 }
 
 impl Layers {
     /// Registers `layer`, returning the [`LayerId`] that now identifies it.
+    #[track_caller]
     pub(crate) fn push(&mut self, layer: Box<dyn Layer>) -> LayerId {
         let id = LayerId(self.layers.len());
-        self.layers.push(layer);
+        let source_location = layer.source_location().unwrap_or(Location::caller());
+        self.layers.push(RegisteredLayer {
+            layer,
+            source_location,
+        });
         id
     }
 
@@ -152,13 +190,35 @@ impl Layers {
         ids.sort_by_key(|id| self[*id].path().len());
         ids
     }
+
+    /// Rejects layers that differ from an endpoint prefix only in dynamic
+    /// parameter names.
+    pub(crate) fn validate_endpoint(
+        &self,
+        path: &Path,
+        source_location: &'static Location<'static>,
+    ) {
+        for layer in &self.layers {
+            let Some((route_segment, layer_segment)) =
+                path.parameter_name_mismatch(layer.layer.path())
+            else {
+                continue;
+            };
+
+            panic!(
+                "parameter name mismatch between layer and route:\n  layer `{}` at {}\n  route `{path}` at {source_location}\nboth paths describe the same URL prefix, but the layer uses `{layer_segment}` where the route uses `{route_segment}`; use the same parameter name in both declarations",
+                layer.layer.path(),
+                layer.source_location,
+            );
+        }
+    }
 }
 
 impl Index<LayerId> for Layers {
     type Output = dyn Layer;
 
     fn index(&self, LayerId(index): LayerId) -> &Self::Output {
-        &*self.layers[index]
+        &*self.layers[index].layer
     }
 }
 

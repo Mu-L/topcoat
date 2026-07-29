@@ -1,4 +1,5 @@
 use std::borrow::Cow;
+use std::panic::Location;
 
 use crate::{LayerFn, LayerHandlerFn, Path};
 
@@ -14,21 +15,25 @@ pub struct ModuleLayerFn {
     module_path: &'static str,
     /// The layer's handler function, wrapping the inner chain.
     render: LayerHandlerFn,
+    /// Where the layer was declared.
+    source_location: &'static Location<'static>,
 }
 
 impl ModuleLayerFn {
     /// Creates a new module layer. Called by the expanded `#[layer]` macro.
+    #[track_caller]
     pub const fn new(module_path: &'static str, render: LayerHandlerFn) -> Self {
         Self {
             module_path,
             render,
+            source_location: Location::caller(),
         }
     }
 
     /// Converts into a [`LayerFn`] with the given resolved URL path.
     #[must_use]
     pub fn into_layer(self, path: Cow<'static, Path>) -> LayerFn {
-        LayerFn::new(path, self.render)
+        LayerFn::with_source_location(path, self.render, self.source_location)
     }
 
     /// Returns the module path used to derive the URL.
