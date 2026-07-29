@@ -13,8 +13,6 @@ Explicit route paths use Topcoat's [`Path`] syntax:
 
 The root path is `/`. Non-root paths must start with `/` and may not contain empty segments. Parameter and group names must start with an ASCII letter or `_` and contain only ASCII letters, digits, and underscores.
 
-Single-segment parameter values are percent-decoded after the router matches the path. Raw catch-all captures keep the encoded tail; typed catch-alls decode each segment separately.
-
 # Pages
 
 A page is an async function annotated with [`#[page]`](page) and a path, returning a rendered view:
