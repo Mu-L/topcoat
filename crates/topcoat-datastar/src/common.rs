@@ -1,6 +1,7 @@
 use std::time::Duration;
 
 use futures_util::stream;
+use memchr::memchr2;
 use topcoat_core::{context::Cx, error::Result};
 use topcoat_router::{
     IntoResponse, Response,
@@ -14,7 +15,7 @@ pub(crate) const PATCH_SIGNALS_EVENT: &str = "datastar-patch-signals";
 #[track_caller]
 pub(crate) fn assert_valid_selector(selector: &str) {
     assert!(
-        !selector.contains(['\r', '\n']),
+        memchr2(b'\r', b'\n', selector.as_bytes()).is_none(),
         "Datastar selectors cannot contain line breaks"
     );
 }
