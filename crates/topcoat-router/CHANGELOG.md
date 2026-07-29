@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.0](https://github.com/tokio-rs/topcoat/compare/topcoat-router-v0.5.0...topcoat-router-v0.6.0) - 2026-07-29
+
+### Added
+
+- *(router)* [**breaking**] request body limits ([#233](https://github.com/tokio-rs/topcoat/pull/233))
+
+### Fixed
+
+- *(router)* reject invalid route signatures at parse time ([#241](https://github.com/tokio-rs/topcoat/pull/241))
+
 ## [0.5.0](https://github.com/tokio-rs/topcoat/compare/topcoat-router-v0.4.0...topcoat-router-v0.5.0) - 2026-07-27
 
 ### Added

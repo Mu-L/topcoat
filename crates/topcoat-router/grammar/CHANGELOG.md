@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.0](https://github.com/tokio-rs/topcoat/compare/topcoat-router-grammar-v0.5.0...topcoat-router-grammar-v0.6.0) - 2026-07-29
+
+### Fixed
+
+- *(router)* reject invalid route signatures at parse time ([#241](https://github.com/tokio-rs/topcoat/pull/241))
+- include docs and visibility in routes, procedures, layers ([#232](https://github.com/tokio-rs/topcoat/pull/232))
+
 ## [0.5.0](https://github.com/tokio-rs/topcoat/compare/topcoat-router-grammar-v0.4.0...topcoat-router-grammar-v0.5.0) - 2026-07-27
 
 ### Added

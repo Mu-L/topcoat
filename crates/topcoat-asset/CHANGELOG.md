@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.0](https://github.com/tokio-rs/topcoat/compare/topcoat-asset-v0.5.0...topcoat-asset-v0.6.0) - 2026-07-29
+
+### Fixed
+
+- *(asset)* register one route per bundled file ([#249](https://github.com/tokio-rs/topcoat/pull/249))
+
 ## [0.5.0](https://github.com/tokio-rs/topcoat/compare/topcoat-asset-v0.4.0...topcoat-asset-v0.5.0) - 2026-07-27
 
 ### Added

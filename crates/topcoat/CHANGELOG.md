@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.0](https://github.com/tokio-rs/topcoat/compare/v0.5.0...v0.6.0) - 2026-07-29
+
+### Added
+
+- *(router)* [**breaking**] request body limits ([#233](https://github.com/tokio-rs/topcoat/pull/233))
+
+### Fixed
+
+- *(asset)* register one route per bundled file ([#249](https://github.com/tokio-rs/topcoat/pull/249))
+- *(router)* reject invalid route signatures at parse time ([#241](https://github.com/tokio-rs/topcoat/pull/241))
+- include docs and visibility in routes, procedures, layers ([#232](https://github.com/tokio-rs/topcoat/pull/232))
+- *(runtime)* render f64 text the way Rust's Display does ([#245](https://github.com/tokio-rs/topcoat/pull/245))
+- *(runtime)* match Rust semantics for string comparison and trim ([#244](https://github.com/tokio-rs/topcoat/pull/244))
+- *(runtime)* reject invalid procedure signatures at parse time ([#230](https://github.com/tokio-rs/topcoat/pull/230))
+
+### Other
+
+- fix memoize docs stale example
+- *(runtime)* note that page guards do not cover shard endpoints ([#251](https://github.com/tokio-rs/topcoat/pull/251))
+
 ## [0.5.0](https://github.com/tokio-rs/topcoat/compare/v0.4.0...v0.5.0) - 2026-07-27
 
 ### Added
