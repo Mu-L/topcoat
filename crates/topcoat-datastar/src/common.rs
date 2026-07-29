@@ -10,6 +10,15 @@ use topcoat_router::{
 pub(crate) const PATCH_ELEMENTS_EVENT: &str = "datastar-patch-elements";
 pub(crate) const PATCH_SIGNALS_EVENT: &str = "datastar-patch-signals";
 
+/// Panics if `selector` cannot be represented on one Datastar command line.
+#[track_caller]
+pub(crate) fn assert_valid_selector(selector: &str) {
+    assert!(
+        !selector.contains(['\r', '\n']),
+        "Datastar selectors cannot contain line breaks"
+    );
+}
+
 /// Assembles a Datastar event of the given `kind`, joining the already
 /// prefixed data `lines`.
 pub(crate) fn event(
