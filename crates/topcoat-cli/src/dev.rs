@@ -1,6 +1,6 @@
 //! The `topcoat dev` command: an auto-rebuilding development server.
 //!
-//! Five pieces cooperate, tied together by the event loop in
+//! Six pieces cooperate, tied together by the event loop in
 //! [`DevCommand::run`]:
 //!
 //! - [`broadcast_server`]: a long-lived local WebSocket server that browsers connect to; it
@@ -10,6 +10,7 @@
 //! - [`keyboard`]: reports the `r` keypress that triggers a manual rebuild.
 //! - [`build`]: compiles the application and bundles its assets in a cancellable background task.
 //! - [`app_server`]: the application process itself.
+//! - [`port`]: resolves the host and port the application will bind before each start.
 //!
 //! The loop's core policy is that the running application is only ever
 //! replaced by a *successful* build: while a rebuild is in flight, and after
@@ -21,6 +22,7 @@ mod app_server;
 mod broadcast_server;
 mod build;
 mod keyboard;
+mod port;
 mod spinner;
 mod watch;
 
@@ -189,7 +191,20 @@ async fn rebuild(build: &mut Option<BuildTask>, opts: &BuildOpts, events: &Event
 /// Start the built executable, reporting a failure to the terminal and to
 /// connected browsers.
 fn start_app(exe: &Path, dev_url: &str, events: &EventBus) -> Option<AppServer> {
-    match AppServer::spawn(exe, dev_url) {
+    let Some(address) = port::resolve() else {
+        events.publish(Event::AppExited);
+        eprintln!(
+            "  {}",
+            style("failed to start application: no port available")
+                .red()
+                .bold()
+        );
+        eprintln!();
+        report_waiting(false);
+        return None;
+    };
+
+    match AppServer::spawn(exe, dev_url, &address) {
         Ok(server) => Some(server),
         Err(error) => {
             events.publish(Event::AppExited);
