@@ -1,5 +1,8 @@
+mod strip_prefix;
+
 use std::{borrow::Cow, pin::Pin, sync::Arc};
 
+pub use strip_prefix::*;
 use topcoat_core::{context::Cx, error::Result};
 
 use crate::{

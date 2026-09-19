@@ -19,6 +19,8 @@ let router = Router::builder()
 
 The service receives the full request URI, including `/legacy`. A catch-all does not match `/legacy` itself, so register a second `TowerRoute` for that path if the service handles it. Use [`new`](TowerRoute::new) to forward only specific HTTP methods.
 
+Use [`StripPrefixLayer`](crate::StripPrefixLayer) when the service expects paths relative to its mount point. For a `TowerRoute` at `/legacy/{*rest}`, registering `.layer(StripPrefixLayer::new("/legacy"))` makes the service receive `/users/7?page=2` for a request to `/legacy/users/7?page=2`.
+
 # Running middleware as a layer
 
 [`TowerLayer`] applies tower middleware to Topcoat request handling. It wraps every request by default, including requests with no matching route. Use [`at`](TowerLayer::at) to apply it only to matched routes under a path prefix:
