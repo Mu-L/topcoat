@@ -1,6 +1,6 @@
 use proc_macro2::TokenStream;
 use quote::quote;
-use topcoat_core_grammar::paths::topcoat_view;
+use topcoat_core_grammar::paths::{topcoat_context, topcoat_view};
 
 use super::{
     Bindings, Node, StaticSegment,
@@ -48,9 +48,8 @@ impl Scope {
     /// is driven inside the block that evaluates the template, so what its
     /// expressions borrow from that block is still alive.
     ///
-    /// With `owns_cx`, the block expects an owned `__cx` context in scope and
-    /// captures it, rebinding `__cx` to a borrow of it inside; the view then
-    /// does not borrow the caller's context.
+    /// With `owns_cx`, the block takes ownership of `__cx` and borrows it
+    /// as `&Cx` inside. Otherwise it uses the enclosing body's `&Cx`.
     pub fn emit_view(&self, owns_cx: bool) -> TokenStream {
         let prologue = borrow_cx(owns_cx);
         let inner = self.emit_driven();
@@ -125,12 +124,11 @@ impl Scope {
     }
 }
 
-/// Rebinds an owned `__cx` context to a borrow of it, so the template reads
-/// the same `&Cx` it would from an ambient context. Empty when the context is
-/// already borrowed.
+/// Borrows a captured `__cx` as `&Cx`, whether the supplied value is owned
+/// or borrowed. Empty when the template uses the ambient context directly.
 fn borrow_cx(owns_cx: bool) -> TokenStream {
     if owns_cx {
-        quote! { let __cx = &__cx; }
+        quote! { let __cx: &#topcoat_context::Cx = &__cx; }
     } else {
         TokenStream::new()
     }

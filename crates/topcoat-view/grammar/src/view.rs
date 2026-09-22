@@ -136,7 +136,7 @@ mod tests {
     fn explicit_cx_binds_the_context_identifier() {
         let tokens = parse("cx => <div></div>").to_token_stream().to_string();
         assert!(tokens.contains("Cx = (cx) . clone () ;"), "{tokens}");
-        assert!(tokens.contains("let __cx = & __cx ;"), "{tokens}");
+        assert!(tokens.contains("Cx = & __cx ;"), "{tokens}");
     }
 
     #[test]

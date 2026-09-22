@@ -33,10 +33,10 @@ impl Parse for Live {
 
 impl ToTokens for Live {
     fn to_tokens(&self, tokens: &mut TokenStream) {
-        let body = &self.body;
         // Read the input span: line!() and column!() would name the outer
         // view! invocation and merge its distinct live! sites.
-        let start = body
+        let start = self
+            .body
             .first()
             .map_or_else(Span::call_site, Spanned::span)
             .start();
@@ -47,53 +47,40 @@ impl ToTokens for Live {
                 #topcoat_core::identity::SiteKey::new(::core::file!(), #line, #column, 0)
             }
         };
-        let borrow_cx = self.cx.as_ref().map(|_| quote! { let __cx = &__cx; });
-        let cx = if self.cx.is_some() {
-            quote! { &__cx }
-        } else {
-            quote! { __cx }
-        };
-        let view = quote! {
+        let body = &self.body;
+        let bind_cx = self.cx.as_ref().map(|cx| {
+            let cx = &cx.cx;
+            quote! { let __cx: #topcoat_context::Cx = (#cx).clone(); }
+        });
+
+        quote! {{
+            #bind_cx
+            let __region = #topcoat_view::RegionId::new(#topcoat_context::identity(&__cx), #site);
             #topcoat_view::internal::LiveView::new(
-                #topcoat_context::identity(#cx),
-                #site,
+                __region,
                 async move {
-                    #borrow_cx
+                    let __cx: &#topcoat_context::Cx = &__cx;
                     #(#body)*
                 },
             )
-        };
-        match &self.cx {
-            Some(cx) => {
-                let cx = &cx.cx;
-                quote! {{
-                    let __cx: #topcoat_context::Cx = (#cx).clone();
-                    #view
-                }}
-                .to_tokens(tokens);
-            }
-            None => view.to_tokens(tokens),
-        }
+        }}
+        .to_tokens(tokens);
     }
 }
 
 #[cfg(feature = "pretty")]
 impl topcoat_core_grammar::pretty::PrettyPrint for Live {
+    /// Keeps statements on separate lines, preserving comments and blank lines.
     fn pretty_print(&self, printer: &mut topcoat_core_grammar::pretty::Printer<'_>) {
-        if let Some(cx) = &self.cx {
-            cx.pretty_print(printer);
-        }
+        self.cx.pretty_print(printer);
         for (index, stmt) in self.body.iter().enumerate() {
             stmt.pretty_print(printer);
             if index < self.body.len() - 1 {
                 printer.scan_same_line_trivia();
+                printer.scan_force_break();
                 printer.scan_break();
-                " ".pretty_print(printer);
                 printer.scan_trivia(true, true);
             }
-        }
-        if self.body.len() > 1 {
-            printer.scan_force_break();
         }
     }
 }
@@ -118,7 +105,7 @@ impl ToTokens for Emit {
         let view = builder.finish().emit_emit(owns_cx);
 
         let drive = quote! {
-            #topcoat_view::internal::LiveView::drive(#view).await
+            #topcoat_view::internal::LiveView::drive(__region, #view).await
         };
 
         // The view borrows the context rather than moving it, so the binding
@@ -160,7 +147,7 @@ mod tests {
     #[test]
     fn an_emitted_view_is_driven_into_the_live_view() {
         let tokens = emit("<div></div>");
-        assert!(tokens.starts_with(":: topcoat_view :: internal :: LiveView :: drive ("));
+        assert!(tokens.starts_with(":: topcoat_view :: internal :: LiveView :: drive (__region ,"));
         assert!(tokens.ends_with(". await"), "{tokens}");
     }
 
@@ -180,7 +167,7 @@ mod tests {
     fn an_explicit_cx_binds_the_context_identifier() {
         let tokens = emit("cx => <div></div>");
         assert!(tokens.contains("Cx = (cx) . clone () ;"), "{tokens}");
-        assert!(tokens.contains("let __cx = & __cx ;"), "{tokens}");
+        assert!(tokens.contains("Cx = & __cx ;"), "{tokens}");
     }
 
     #[test]
@@ -189,6 +176,7 @@ mod tests {
             .unwrap()
             .to_token_stream()
             .to_string();
-        assert!(tokens.contains("async move { let x = 1 ;"), "{tokens}");
+        assert!(tokens.contains("async move {"), "{tokens}");
+        assert!(tokens.contains("let x = 1 ;"), "{tokens}");
     }
 }

@@ -11,7 +11,9 @@ pub struct RegionId(u128);
 
 impl RegionId {
     /// Derives a region id at `site` below `identity`.
-    pub(crate) const fn new(identity: Identity, site: SiteKey) -> Self {
+    #[doc(hidden)]
+    #[must_use]
+    pub const fn new(identity: Identity, site: SiteKey) -> Self {
         Self(identity.child(site).hash())
     }
 }

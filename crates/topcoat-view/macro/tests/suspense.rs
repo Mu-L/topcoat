@@ -8,7 +8,7 @@ use tokio::sync::oneshot;
 use topcoat::{
     Result,
     context::Cx,
-    view::{View, ViewFirst, ViewSwap, component, suspense, view},
+    view::{View, ViewFirst, ViewSwap, component, emit, live, suspense, view},
 };
 
 /// Renders the label the channel delivers, or fails with its error.
@@ -36,22 +36,25 @@ async fn suspense_shows_the_fallback_until_the_child_is_ready() {
         cx =>
         suspense(
             fallback: view! { <p>"loading"</p> },
+            (view! { <b>"prefix"</b> })
             slow(rx: rx)
         )
     });
 
     let content = first(&mut view).await.unwrap();
     assert!(content.live);
-    assert!(content.content.render(cx).contains("<p>loading</p>"));
+    let html = content.content.render(cx);
+    assert!(html.contains("<!--topcoat::region::start("), "{html}");
+    assert!(html.contains("<p>loading</p>"), "{html}");
 
     tx.send(Ok("done")).unwrap();
     let swap = next_swap(&mut view).await.unwrap().unwrap();
-    assert_eq!(swap.replacement.render(cx), "<i>done</i>");
+    assert_eq!(swap.replacement.render(cx), "<b>prefix</b><i>done</i>");
     assert!(next_swap(&mut view).await.unwrap().is_none());
 }
 
 #[tokio::test]
-async fn suspense_swaps_in_an_immediate_child() {
+async fn suspense_renders_a_ready_child_in_place() {
     let cx = &Cx::default();
     let mut view = pin!(view! {
         cx =>
@@ -61,9 +64,83 @@ async fn suspense_swaps_in_an_immediate_child() {
         )
     });
 
-    assert!(first(&mut view).await.unwrap().live);
+    // The child is ready on the first poll, so no region is created and the
+    // fallback never shows.
+    let content = first(&mut view).await.unwrap();
+    assert!(!content.live);
+    assert_eq!(content.content.render(cx), "<p>content</p>");
+    assert!(next_swap(&mut view).await.unwrap().is_none());
+}
+
+#[tokio::test]
+async fn suspense_forwards_a_ready_childs_swaps() {
+    let cx = &Cx::default();
+    let mut view = pin!(view! {
+        cx =>
+        suspense(
+            fallback: view! { <p>"loading"</p> },
+            (live! {
+                emit! { <i>"first"</i> }?;
+                emit! { <i>"updated"</i> }
+            })
+        )
+    });
+
+    let content = first(&mut view).await.unwrap();
+    assert!(content.live);
+    let html = content.content.render(cx);
     let swap = next_swap(&mut view).await.unwrap().unwrap();
-    assert_eq!(swap.replacement.render(cx), "<p>content</p>");
+    assert_eq!(
+        html,
+        format!(
+            "<!--topcoat::region::start({})--><i>first</i><!--topcoat::region::end({})-->",
+            swap.region, swap.region,
+        ),
+    );
+    assert_eq!(swap.replacement.render(cx), "<i>updated</i>");
+    assert!(next_swap(&mut view).await.unwrap().is_none());
+}
+
+#[tokio::test]
+async fn suspense_forwards_child_swaps_after_replacing_the_fallback() {
+    let cx = &Cx::default();
+    let (tx, rx) = oneshot::channel::<()>();
+    let mut view = pin!(view! {
+        cx =>
+        suspense(
+            fallback: view! { <p>"loading"</p> },
+            (live! {
+                rx.await.unwrap();
+                emit! { <i>"first"</i> }?;
+                emit! { <i>"updated"</i> }
+            })
+        )
+    });
+
+    let content = first(&mut view).await.unwrap();
+    assert!(content.live);
+    let html = content.content.render(cx);
+    tx.send(()).unwrap();
+
+    let replacement = next_swap(&mut view).await.unwrap().unwrap();
+    assert_eq!(
+        html,
+        format!(
+            "<!--topcoat::region::start({})--><p>loading</p><!--topcoat::region::end({})-->",
+            replacement.region, replacement.region,
+        ),
+    );
+    let child_html = replacement.replacement.render(cx);
+    let update = next_swap(&mut view).await.unwrap().unwrap();
+    assert_ne!(replacement.region, update.region);
+    assert_eq!(
+        child_html,
+        format!(
+            "<!--topcoat::region::start({})--><i>first</i><!--topcoat::region::end({})-->",
+            update.region, update.region,
+        ),
+    );
+    assert_eq!(update.replacement.render(cx), "<i>updated</i>");
     assert!(next_swap(&mut view).await.unwrap().is_none());
 }
 
