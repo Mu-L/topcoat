@@ -3,15 +3,11 @@ use topcoat_core::{context::Cx, error::Result};
 
 use crate::response::{IntoResponse, Response};
 
-/// Creates a `429 Too Many Requests` error with a `Retry-After` header of
-/// `retry_after_secs` seconds.
+/// Builds a too-many-requests (HTTP 429) response carrying a `Retry-After`
+/// hint, in seconds.
 ///
-/// Return it when a client went over a limit you set for it, such as a rate
-/// limit or a quota. A 429 means that this client sent too many requests. Use
-/// [`service_unavailable`](crate::error::service_unavailable) instead when the
-/// whole server is busy, no matter who sends the request.
-///
-/// The `Retry-After` header tells the client when it may try again.
+/// Return this when a caller exceeds a rate limit or quota. The `Retry-After`
+/// header tells the client how long to wait before trying again.
 ///
 /// # Examples
 ///
@@ -32,10 +28,10 @@ pub fn too_many_requests(retry_after_secs: u64) -> TooManyRequestsError {
     TooManyRequestsError::new(retry_after_secs)
 }
 
-/// A `429 Too Many Requests` error.
+/// A too-many-requests response carried as the `Err` variant of a handler
+/// `Result`.
 ///
-/// Create one with [`too_many_requests`]. Returned from a handler, it renders
-/// as a `429 Too Many Requests` response with a `Retry-After` header.
+/// Construct one with [`too_many_requests`].
 #[derive(Debug, Clone)]
 pub struct TooManyRequestsError {
     retry_after_secs: u64,
@@ -46,7 +42,7 @@ impl TooManyRequestsError {
         Self { retry_after_secs }
     }
 
-    /// Returns the `Retry-After` value of the response, in seconds.
+    /// The `Retry-After` value this response carries, in seconds.
     #[must_use]
     pub fn retry_after_secs(&self) -> u64 {
         self.retry_after_secs

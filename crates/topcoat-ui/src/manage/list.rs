@@ -7,69 +7,42 @@ use super::{
 };
 use crate::Registry;
 
-/// The listing of one registry, returned by [`list`].
+/// A registry name and its component statuses or load error.
 pub struct RegistryListing {
-    /// The name of the registry.
     pub name: String,
-    /// The status of each component, or the error from loading the registry.
     pub outcome: Result<Vec<ComponentStatus>, String>,
 }
 
-/// The install status of one component in a [`RegistryListing`].
+/// A component's name and its install status within a registry.
 pub struct ComponentStatus {
-    /// The name of the component.
     pub name: String,
-    /// Whether and at which version the component is installed.
     pub status: InstallStatus,
 }
 
-/// Whether a component is installed, compared with what its registry offers.
-///
-/// The hashes are [`content_hash`](crate::content_hash) values.
+/// The install status of a registry component in the package.
 pub enum InstallStatus {
-    /// The registry offers the component, but it is not installed.
-    Available {
-        /// The hash of the registry's source.
-        hash: String,
-    },
-    /// The component is installed with the registry's current source.
-    UpToDate {
-        /// The hash of the installed and the registry's source.
-        hash: String,
-    },
-    /// The component is installed, but the registry's source has changed
-    /// since.
-    Update {
-        /// The hash recorded when the component was installed.
-        installed: String,
-        /// The hash of the registry's current source.
-        latest: String,
-    },
-    /// The component is installed from this registry, but the registry no
-    /// longer offers it or can no longer be loaded.
-    Orphaned {
-        /// The hash recorded when the component was installed.
-        installed: String,
-    },
+    /// Offered by the registry but not installed; carries the latest hash.
+    Available { hash: String },
+    /// Installed at the hash the registry currently offers.
+    UpToDate { hash: String },
+    /// Installed at a different hash than the registry now offers.
+    Update { installed: String, latest: String },
+    /// Tracked as installed under this registry, which no longer offers it.
+    Orphaned { installed: String },
 }
 
-/// Lists registries and the install status of their components: implements
-/// `topcoat ui list`.
+/// Lists available registries and the install status of their components.
 ///
-/// This lists every registry the package can add from, plus every registry
-/// that `components.toml` still records components from, sorted by name. A
-/// component counts as installed only if it was installed from that same
-/// registry. With `selected`, only that registry is listed. An error while
-/// loading one registry is reported in its [`RegistryListing::outcome`] and
-/// does not fail the whole listing.
-///
-/// The hashes compare the registry's source only. Local edits to an installed
-/// file do not change its status.
+/// Includes registries recorded in the install state even if they are no longer
+/// dependencies. Pass `selected` to list just one registry. A component is installed
+/// only under the registry recorded for it. An unavailable registry produces orphaned
+/// statuses for tracked components, or a load error if none are tracked.
 ///
 /// # Errors
 ///
-/// Returns an error if the package has no `components.toml`, if
-/// `cargo metadata` fails, or if `selected` names an unknown registry.
+/// Returns an error if the install state or workspace cannot be loaded, or if
+/// `selected` names a registry that is neither a dependency nor tracked in the
+/// install state.
 pub fn list(package: &Package, selected: Option<&str>) -> Result<Vec<RegistryListing>, String> {
     let state = InstallState::load(package)?;
     let workspace = Workspace::load(package)?;
@@ -101,10 +74,8 @@ pub fn list(package: &Package, selected: Option<&str>) -> Result<Vec<RegistryLis
     Ok(listings)
 }
 
-/// Builds one registry's listing, resolving and loading it and classifying its
-/// components. When the registry cannot be resolved or loaded, any components
-/// still tracked under it are reported as orphaned rather than losing them to a
-/// bare load error.
+/// Loads a registry and classifies its components. If loading fails, reports tracked
+/// components as orphaned, or returns the load error when none are tracked.
 fn listing_for(workspace: &Workspace, name: &str, state: &RegistryState) -> RegistryListing {
     let outcome = match workspace.registry_dir(name).and_then(|dir| {
         Registry::load(dir).map_err(|error| format!("failed to load registry `{name}`: {error}"))
@@ -119,9 +90,8 @@ fn listing_for(workspace: &Workspace, name: &str, state: &RegistryState) -> Regi
     }
 }
 
-/// Classifies every component a registry offers, plus any tracked under it that
-/// it no longer offers. Each offered component's source is read and hashed to
-/// learn its current version; a failure to do so fails the whole listing.
+/// Compares current component hashes with install-state hashes, including installed
+/// components no longer offered by the registry. Fails if a source cannot be read.
 fn statuses(registry: &Registry, state: &RegistryState) -> Result<Vec<ComponentStatus>, String> {
     let names: Vec<&str> = registry.names().collect();
     let mut out = Vec::new();
@@ -161,8 +131,7 @@ fn statuses(registry: &Registry, state: &RegistryState) -> Result<Vec<ComponentS
     Ok(out)
 }
 
-/// Reports every tracked component as orphaned, used when the registry itself
-/// can no longer be loaded.
+/// Reports tracked components as orphaned when their registry cannot be loaded.
 fn orphaned(state: &RegistryState) -> Vec<ComponentStatus> {
     state
         .components

@@ -23,23 +23,14 @@ use topcoat_core_grammar::{ParseOption, paths::topcoat_font};
 pub use unicode::*;
 pub use weight::*;
 
-/// A `font_face!` body: a set of CSS `@font-face` descriptors written as
-/// `name: value` pairs separated by semicolons.
 pub struct FontFace {
-    /// The `font-family` descriptor. Optional in the AST because a
-    /// [`font!`](super::font::Font) `@font-face` block omits it and has the
-    /// family injected by the enclosing macro; the `font_face!` macro requires
-    /// it.
+    /// The `font-family` descriptor. Required by `font_face!` and supplied by
+    /// the enclosing [`font!`](super::font::Font) when used inside that macro.
     pub family: Option<FontFamily>,
-    /// The required `src` descriptor.
     pub src: FontSources,
-    /// The `font-weight` descriptor, if written.
     pub weight: Option<FontWeight>,
-    /// The `font-style` descriptor, if written.
     pub style: Option<FontStyle>,
-    /// The `font-display` descriptor, if written.
     pub display: Option<FontDisplay>,
-    /// The `unicode-range` descriptor, if written.
     pub unicode_range: Option<UnicodeRanges>,
 }
 
@@ -110,12 +101,8 @@ impl Parse for FontFace {
 }
 
 impl FontFace {
-    /// Emits the `FontFace::new(...)` construction, using `family` as the face's
-    /// family rather than the `font-family` descriptor stored on `self` (which
-    /// may be absent).
-    ///
-    /// This lets [`font!`](super::font::Font) reuse a `FontFace` block while
-    /// injecting the family declared once on the enclosing macro.
+    /// Emits a `FontFace` construction with the supplied `family`, overriding
+    /// any family descriptor stored in the parsed face.
     pub fn to_tokens_with_family(&self, family: &impl ToTokens) -> TokenStream {
         let src = &self.src;
 

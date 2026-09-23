@@ -13,14 +13,9 @@ mod kw {
     custom_keyword!(host);
 }
 
-/// A `host:` argument choosing where the font file is loaded from, e.g.
-/// `host: Asset`. Defaults to `JsDelivr` when omitted.
 pub struct Host {
-    /// The `host` name.
     pub key: HostKey,
-    /// The `:` between the name and the value.
     pub colon_token: Token![:],
-    /// The written value.
     pub value: HostValue,
 }
 
@@ -63,9 +58,7 @@ impl topcoat_core_grammar::pretty::PrettyPrint for Host {
     }
 }
 
-/// The `host` argument name.
 pub struct HostKey {
-    /// The `host` keyword.
     pub host_kw: kw::host,
 }
 
@@ -95,9 +88,8 @@ impl topcoat_core_grammar::pretty::PrettyPrint for HostKey {
 
 /// A single host, written as a bare variant name (`Asset`).
 ///
-/// Emits the [`Host`](runtime::Host) variant's path, keeping the written
-/// ident's span so the compiler reports unknown variants on it and editors
-/// autocomplete them.
+/// Emits a [`Host`](runtime::Host) variant path while preserving the identifier's
+/// span for compiler errors and editor completion.
 pub struct HostValue(syn::Ident);
 
 impl HostValue {
@@ -107,9 +99,8 @@ impl HostValue {
         &self.0
     }
 
-    /// The host the written variant names. Unknown names fall back to
-    /// [`JsDelivr`](runtime::Host::JsDelivr); the compiler reports them on the
-    /// emitted variant.
+    /// Resolves the host name, falling back to [`JsDelivr`](runtime::Host::JsDelivr)
+    /// for unknown names. The emitted variant still reports a compiler error.
     #[must_use]
     pub fn host(&self) -> runtime::Host {
         match self.0.to_string().as_str() {

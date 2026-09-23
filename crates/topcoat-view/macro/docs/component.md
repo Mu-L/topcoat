@@ -1,4 +1,4 @@
-A component is a reusable piece of markup, written as an async function annotated with [`#[component]`][`component`]. It takes typed parameters like any other Rust function and returns a value implementing [`View`], wrapped in Topcoat's [`Result`] type.
+The [`#[component]`][`component`] attribute defines an async function that returns a view. Components accept typed parameters and return [`Result<impl View>`][`Result`].
 
 ```rust
 use topcoat::{
@@ -16,11 +16,9 @@ async fn badge(label: &str, tone: &str) -> Result<impl View> {
 }
 ```
 
-The function must be `async`, must declare a return type, and cannot take `self`. Each parameter must be a plain name, not a pattern like `(a, b)`. The macro replaces the function with a type of the same name that [`view!`] knows how to call. It also generates a props struct named after the function, such as `BadgeProps` for `badge`, with one field per parameter and a builder from the [`Props`] derive. Doc comments on the function are copied to both, so they show up when you hover a component call in your editor.
-
 # Calling Components
 
-Call a component inside [`view!`] like a function, but pass each argument by name:
+Call components inside [`view!`] with named arguments:
 
 ```rust
 # use topcoat::{Result, view::*};
@@ -39,11 +37,9 @@ Ok(view! {
 # }
 ```
 
-The arguments can come in any order. Leaving out a required argument is a compile error that names the missing parameter.
-
 # Child Content
 
-A component can accept child content through a parameter named `child` of type [`Child`]. Any view nodes after the named arguments in a call are collected into that parameter. Mark it `#[default]` so the component can also be called without children.
+If a component accepts a parameter named `child` with type [`Child`], any extra view nodes in the call are collected and passed as that child view. Give it `#[default]` so the component can also be called without children.
 
 ```rust
 use topcoat::{
@@ -81,25 +77,21 @@ Ok(view! {
 # }
 ```
 
-The child nodes are shorthand for a `child` argument whose value is a [`view!`] holding those nodes.
+You can also pass a view explicitly as the `child` argument.
 
-# Parameter Attributes
+# Parameter attributes
 
-Two attributes change how a parameter is passed:
+A parameter can have these attributes:
 
-- `#[default]` makes the parameter optional. When a call leaves it out, it is set to `Default::default()`. Use `#[default(expr)]` to supply a different fallback, which is only evaluated when the parameter is left out. With `#[default(expr)]`, the type does not need to implement `Default`.
-- `#[into]` lets callers pass any value that converts into the parameter type with `Into`, such as a `&str` for a `String` parameter. The conversion happens at the call site, outside of the component.
+- `#[default]` uses `Default::default()` when the caller omits the argument. `#[default(expr)]` uses a custom fallback instead. The fallback runs only when the argument is omitted and does not require the type to implement `Default`.
+- `#[into]` accepts any value that converts to the parameter's type through `Into`. The component receives the converted value.
 
 ```rust
 # use topcoat::{Result, view::{View, component, view}};
 # #[derive(Default)]
 # struct Tone;
 #[component]
-async fn badge(
-    #[into] label: String,
-    #[default] tone: Tone,
-    #[default(80)] max_length: usize,
-) -> Result<impl View> {
+async fn badge(#[into] label: String, #[default] tone: Tone, #[default(80)] max_length: usize) -> Result<impl View> {
     // ...
 #     Ok(view! { <span>(label)</span> })
 }
@@ -107,7 +99,7 @@ async fn badge(
 
 # Generics
 
-Components can be generic. Depending on how the type is used, you may need to require `Send` or `Sync`:
+Components can be generic. Depending on usage, you may need to declare the type as `Send` or `Sync`:
 
 ```rust
 # use topcoat::{Result, view::{View, component, view}};
@@ -127,11 +119,11 @@ async fn shout(label: impl Into<String> + Send) -> Result<impl View> {
 }
 ```
 
-For conversions, prefer `#[into]` over `impl Into<T>`. A generic parameter makes the compiler generate a separate copy of the component body for every argument type, while `#[into]` converts at the call site and keeps a single copy.
+Prefer `#[into]` when the component only needs the converted value.
 
 # Request Context
 
-A component can access the current request context by declaring a parameter named `cx` of type [`&Cx`][`Cx`]. It is filled in automatically and is not passed at the call site.
+Components can ask for the current request context by declaring a `cx` parameter that borrows [`Cx`]:
 
 ```rust
 use topcoat::{
@@ -149,9 +141,10 @@ async fn current_path(cx: &Cx) -> Result<impl View> {
 }
 ```
 
+
 # Recursive Components
 
-A component returns an anonymous view type. When a component calls itself, directly or through other components, that type would have to contain itself, which Rust does not allow. Break the cycle by erasing the view type of one component in it with [`boxed`](trait.ViewExt.html#method.boxed):
+A recursive component needs to box its view with [`boxed`](trait.ViewExt.html#method.boxed). This gives the view a type with a known size:
 
 ```rust
 use topcoat::{
@@ -171,12 +164,11 @@ async fn countdown(n: u32) -> Result<impl View> {
 }
 ```
 
-The other components in the cycle can keep returning `impl View`. One erased type is enough to break the cycle.
+For mutually recursive components, boxing one view in the cycle is enough.
 
 [`Cx`]: ../context/struct.Cx.html
 [`Result`]: ../type.Result.html
 [`Child`]: struct.Child.html
-[`Props`]: derive.Props.html
 [`View`]: trait.View.html
 [`component`]: attr.component.html
 [`view!`]: macro.view.html

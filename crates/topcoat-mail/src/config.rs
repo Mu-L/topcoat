@@ -7,13 +7,11 @@ use topcoat_core::{
 
 use crate::{Mail, Receipt, Transport};
 
-/// Mail configuration: the [`Transport`] the application sends mail through.
+/// The transport used to send application mail.
 ///
-/// Build one with [`MailConfig::builder`] and register it as app context,
-/// usually with `.mail(config)` on the router builder. Code then sends mail
-/// with [`send`] without naming the transport, so you can switch transports,
-/// for example between development and production, without changing that
-/// code:
+/// Choose a [`Transport`] with [`MailConfig::builder`] and register the
+/// configuration in app context. Handlers can then call [`send`] without
+/// choosing a transport:
 ///
 /// ```
 /// use topcoat_core::context::CxTestBuilder;
@@ -48,21 +46,21 @@ impl MailConfig {
     }
 }
 
-/// Builder for a [`MailConfig`], created with [`MailConfig::builder`].
+/// Assembles a [`MailConfig`]. Created with [`MailConfig::builder`].
 #[derive(Default)]
 pub struct MailConfigBuilder {
     transport: Option<Box<dyn Transport>>,
 }
 
 impl MailConfigBuilder {
-    /// Sets the [`Transport`] the application sends mail through.
+    /// Sets the [`Transport`] the application delivers mail through.
     #[must_use]
     pub fn transport(mut self, transport: impl Transport + 'static) -> Self {
         self.transport = Some(Box::new(transport));
         self
     }
 
-    /// Returns the finished [`MailConfig`].
+    /// Consumes the builder, returning the finished [`MailConfig`].
     ///
     /// # Panics
     ///
@@ -78,11 +76,8 @@ impl MailConfigBuilder {
     }
 }
 
-/// Sends `mail` through the transport of the [`MailConfig`] registered as app
-/// context.
-///
-/// Returns a [`Receipt`] once the transport accepts the mail. This does not
-/// mean the mail has reached the recipient's inbox.
+/// Sends a message through the registered [`MailConfig`]. Returns a [`Receipt`]
+/// when the transport accepts it.
 ///
 /// # Panics
 ///
@@ -90,8 +85,8 @@ impl MailConfigBuilder {
 ///
 /// # Errors
 ///
-/// Returns an error when the mail is incomplete or invalid, or when the
-/// transport fails to deliver it. See [`SendError`](crate::SendError).
+/// Returns an error if the message cannot be formatted or delivered.
+/// See [`SendError`](crate::SendError).
 pub async fn send(cx: &Cx, mail: Mail) -> Result<Receipt> {
     let config: &MailConfig = app_context(cx);
     config.transport.send(cx, mail).await

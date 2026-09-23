@@ -16,11 +16,8 @@ mod kw {
 /// A `style:` argument carrying the single style one face ships, e.g.
 /// `style: Italic`.
 pub struct Style {
-    /// The `style` name.
     pub key: StyleKey,
-    /// The `:` between the name and the value.
     pub colon_token: Token![:],
-    /// The written value.
     pub value: StyleValue,
 }
 
@@ -50,9 +47,7 @@ impl topcoat_core_grammar::pretty::PrettyPrint for Style {
     }
 }
 
-/// The `style` argument name.
 pub struct StyleKey {
-    /// The `style` keyword.
     pub style_kw: kw::style,
 }
 
@@ -82,9 +77,8 @@ impl topcoat_core_grammar::pretty::PrettyPrint for StyleKey {
 
 /// A single style, written as a bare variant name (`Normal` or `Italic`).
 ///
-/// Emits the [`Style`](runtime::Style) variant's path, keeping the written
-/// ident's span so the compiler reports unknown variants on it and editors
-/// autocomplete them.
+/// Emits a [`Style`](runtime::Style) variant path while preserving the identifier's
+/// span for compiler errors and editor completion.
 pub struct StyleValue(Ident);
 
 impl StyleValue {
@@ -94,9 +88,7 @@ impl StyleValue {
         &self.0
     }
 
-    /// The style the written variant names, or `None` when it is not a
-    /// [`Style`](runtime::Style) variant: the compiler reports those on the
-    /// emitted variant.
+    /// Returns the named style, or `None` for an unknown variant.
     #[must_use]
     pub fn style(&self) -> Option<runtime::Style> {
         match self.ident().to_string().as_str() {

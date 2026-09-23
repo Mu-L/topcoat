@@ -1,15 +1,12 @@
 #![cfg_attr(docsrs, feature(doc_cfg))]
 //! [htmx](https://htmx.org) support for Topcoat.
 //!
-//! This crate has two parts:
+//! Read request headers from `cx: &Cx` with accessors such as [`hx_request`].
+//! Set response headers by placing a responder before the body in a response
+//! tuple. Responders implement
+//! [`IntoResponseParts`](topcoat_router::response::IntoResponseParts).
 //!
-//! - Functions like [`hx_request`], [`hx_target`], and [`hx_trigger`] read the [htmx request headers](https://htmx.org/reference/#request_headers)
-//!   from a `cx: &Cx`.
-//! - Types like [`HxRedirect`], [`HxRetarget`], and [`HxResponseTrigger`] set the [htmx response headers](https://htmx.org/reference/#response_headers).
-//!   They implement [`IntoResponseParts`](topcoat_router::response::IntoResponseParts), so you
-//!   place them before the body in a handler's response tuple.
-//!
-//! The raw header names are available as constants in the [`header`] module.
+//! Raw header names are available in [`header`].
 
 pub mod header;
 

@@ -1,8 +1,8 @@
-Web fonts are loaded through CSS. An [`@font-face`] rule names a font family and tells the browser where to download the font files. With Topcoat, you declare these rules in Rust, the router serves them as a stylesheet, and a component loads that stylesheet into your pages.
+Declare web fonts in Rust and serve their CSS through the router. Each [`@font-face`] rule tells the browser which font file to load and when to use it.
 
 # Declaring fonts
 
-[`font!`] declares a [`Font`] from [`@font-face`] blocks you write yourself. The family name comes first, and Topcoat adds it to every block for you. Declare the font as a constant, register it on the router, and load it in the page's `<head>` with the [`link`] component:
+[`font!`] declares a font family and its [`@font-face`] rules. Write the family name once, followed by the rules. Register the font on the router and add its stylesheet to the page's `<head>`:
 
 ```rust,no_run
 use topcoat::{
@@ -12,7 +12,6 @@ use topcoat::{
     view::{View, view},
 };
 
-// Declare the "Orbitron" font.
 const ORBITRON: Font = font! {
     "Orbitron",
     @font-face {
@@ -26,8 +25,7 @@ const ORBITRON: Font = font! {
 
 #[tokio::main]
 async fn main() {
-    // `.discover()` finds the font automatically. You can also register it
-    // yourself with `.font(ORBITRON)`.
+    // Discover the font and page.
     let router = Router::builder().discover().build();
     topcoat::start(router).await.unwrap();
 }
@@ -48,15 +46,13 @@ async fn home() -> Result<impl View> {
 }
 ```
 
-The [`link`] component renders a `<link>` to the stylesheet that holds the font's `@font-face` rules. By default it also preloads the font files, so the browser starts downloading them early.
+The [`link`] component loads the font's stylesheet. To register a font manually, call [`font`](RouterBuilderFontExt::font) on the router builder.
 
-After that, using the font is plain CSS: any rule on the page can refer to the family by name, like the `style` attribute above. Instead of repeating the name as a string, you can also read it with [`ORBITRON.family()`].
-
-The body of each `@font-face` block uses the syntax of [`font_face!`], which describes every supported descriptor.
+Use the family name in CSS to apply the font. [`ORBITRON.family()`] returns that name when you need it in Rust.
 
 ## Serving the files as assets
 
-`url(...)` accepts any expression that evaluates to a URL string. It also accepts a Topcoat [`Asset`], so the font file is bundled with your other assets and served from your own origin:
+Pass an [`Asset`] to `url(...)` to bundle the font file and serve it from your application:
 
 ```rust
 use topcoat::{asset::asset, font::{Font, font}};
@@ -72,19 +68,19 @@ const INTER: Font = font! {
 };
 ```
 
-A local file works the same way: `url(asset!("./fonts/inter-400.woff2"))`. This needs the `asset` feature and the asset bundle loaded on the router. See the [asset guide] for how bundling works.
+Use `url(asset!("./fonts/inter-400.woff2"))` for a local file. Enable the `asset` feature and load the bundle on the router as described in the [asset guide].
 
 # Fontsource
 
-[Fontsource] is an open source catalog of web fonts. It includes every Google Font and many other openly licensed families. [`fontsource_font!`] declares a font straight from the catalog. It checks the family and every requested weight, style, and subset against the catalog at compile time.
+[Fontsource] is a catalog of open-source web fonts. [`fontsource_font!`] declares a font from this catalog and checks the requested family, weights, styles, and character subsets at compile time.
 
-Fontsource support needs the `font-fontsource` feature:
+Fontsource support lives behind the `font-fontsource` feature:
 
 ```toml
 topcoat = { version = "0.8.1", features = ["font-fontsource"] }
 ```
 
-Then name a family from the [`families`] module. By default, the font includes every weight and style the family ships, but only its default character subset. The browser loads the files from the [jsDelivr] CDN:
+Choose a font from [`families`]. By default, the declaration includes all its weights and styles in its default character subset. The browser loads the files from [jsDelivr]:
 
 ```rust
 # #[cfg(feature = "font-fontsource")]
@@ -93,11 +89,11 @@ Then name a family from the [`families`] module. By default, the font includes e
 const ROBOTO: Font = fontsource_font!(ROBOTO);
 ```
 
-The result is a normal [`Font`]. You register it and load it exactly like a font declared with [`font!`].
+The resulting [`Font`] can be registered, served, and loaded exactly like a custom one.
 
 ## Picking weights, styles, and subsets
 
-Every combination of weight, style, and subset is a separate font file, so only include what you use. The `weight`, `style`, and `subset` arguments narrow the font down. Each takes a single value or a list in brackets:
+Each combination of weight, style, and subset needs a separate font file. Include only the combinations you use. Each argument accepts one value or a bracketed list:
 
 ```rust
 # #[cfg(feature = "font-fontsource")]
@@ -111,11 +107,11 @@ const ROBOTO: Font = fontsource_font!(
 );
 ```
 
-See [`fontsource_font!`] for all arguments. To declare a single face instead of a whole font, use [`fontsource_font_face!`].
+See [`fontsource_font!`] for the details of each argument.
 
 ## Self-hosting Fontsource fonts
 
-By default, the browser loads the font files from the [jsDelivr] CDN. Pass `host: Asset` to bundle the files as Topcoat [assets] instead and serve them from your own origin, with content-hashed URLs:
+Pass `host: Asset` to bundle the font files as Topcoat [assets] and serve them from your application:
 
 ```rust,no_run
 # #[cfg(feature = "font-fontsource")]
@@ -144,8 +140,6 @@ let router = Router::builder()
 [`Font`]: Font
 [`ORBITRON.family()`]: Font::family
 [`font!`]: font
-[`font_face!`]: font_face
 [`families`]: fontsource/families/index.html
 [`fontsource_font!`]: fontsource/macro.fontsource_font.html
-[`fontsource_font_face!`]: fontsource/macro.fontsource_font_face.html
 [`link`]: link

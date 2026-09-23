@@ -6,18 +6,14 @@ use topcoat::{
 
 use super::dialog::dialog;
 
-/// A dialog that asks the user to make a decision before going on.
+/// A dialog that asks the user to respond to an important message.
 ///
-/// It is a [`dialog`] with `role="alertdialog"`, so assistive technology
-/// announces it as a question. Build its content from
-/// [`dialog_content`](super::dialog::dialog_content),
-/// [`dialog_header`](super::dialog::dialog_header), and the other dialog
-/// components, and put the choices in the footer. Do not offer a way to close
-/// it other than the choices.
+/// Build its content with the dialog components and provide actions for answering or
+/// cancelling. It uses `role="alertdialog"` and has the same focus and dismissal
+/// requirements as [`dialog`].
 ///
-/// To give the dialog an accessible name, pass `aria-labelledby` with the id
-/// of the title and `aria-describedby` with the id of the description in
-/// `attrs`. The `attrs` are forwarded to the `<dialog>`.
+/// Pass `aria-labelledby` and `aria-describedby` in `attrs`, pointing to the title and
+/// description IDs. Other attributes are forwarded to the `<dialog>`.
 ///
 /// ```ignore
 /// view! {

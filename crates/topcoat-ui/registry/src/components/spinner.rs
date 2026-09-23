@@ -4,14 +4,11 @@ use topcoat::{
     view::{Attributes, Length, View, attributes, class, component, view},
 };
 
-/// A spinning loader icon that shows that something is pending.
+/// An animated icon for work in progress.
 ///
-/// By default the spinner is `1em` square, so it scales with the surrounding
-/// text and fits inline next to it. Pass `size` to set another size. `label`
-/// is announced to assistive technology and defaults to `"Loading"`.
-///
-/// The `attrs` (such as `class`) are forwarded to the `<svg>`. A `class`
-/// among them is appended to the component's classes.
+/// The default size is `1em`, matching the surrounding text. Pass `size` to choose
+/// other dimensions and `label` to describe the work to assistive technology. `attrs`
+/// are forwarded to the `<svg>`, with extra classes added to its classes.
 ///
 /// ```ignore
 /// view! {

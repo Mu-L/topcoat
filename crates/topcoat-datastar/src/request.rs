@@ -3,8 +3,7 @@ use topcoat_router::request::headers;
 
 use crate::header;
 
-/// Returns `true` when the current request was sent by a Datastar action,
-/// which means it carries a `Datastar-Request: true` header.
+/// Returns whether the request carries `Datastar-Request: true`.
 ///
 /// # Panics
 ///

@@ -5,11 +5,7 @@ use topcoat::{
     view::{Attributes, Child, StaticClass, View, attributes, class, component, view},
 };
 
-/// The classes for the native `<select>` inside the [`select`] component.
-///
-/// It has the same size as the input control. The native arrow is hidden, so
-/// the component can draw its own chevron and look the same in all browsers.
-/// The extra right padding leaves room for the chevron.
+/// Classes for the select control, with space for a custom dropdown arrow.
 const SELECT: StaticClass = class!(
     "h-9 w-full appearance-none items-center rounded-lg border border-border \
      bg-transparent pr-8 pl-3 text-left text-sm transition-colors outline-none \
@@ -18,17 +14,8 @@ const SELECT: StaticClass = class!(
      focus-visible:ring-offset-background disabled:pointer-events-none",
 );
 
-/// The classes that style the drop-down list, in browsers that support
-/// customizable selects (`appearance: base-select`, which the wrapper sets on
-/// the `<select>`).
-///
-/// The list and its options look like the dropdown menu's panel and items:
-/// the same raised surface and the same hover and focus tints. The selected
-/// option has a checkmark at its right edge. The checkmark is the
-/// [`CHECKMARK`] icon used as a mask over the muted foreground color (see
-/// [`checkmark_style`]). The browser's own picker icon is hidden in favor of
-/// the component's chevron. Browsers without support ignore these rules and
-/// show the operating system's list.
+/// Classes for browsers that support customizable select pickers. Other browsers use
+/// their native picker.
 const PICKER: StaticClass = class!(
     "[&::picker(select)]:[appearance:base-select] \
      [&::picker(select)]:mt-1 [&::picker(select)]:rounded-lg \
@@ -51,13 +38,11 @@ const PICKER: StaticClass = class!(
      [&_option::checkmark]:[mask-image:var(--select-checkmark)]",
 );
 
-/// The icon that marks the selected option in the list.
+/// The icon marking the picker's checked option.
 const CHECKMARK: IconData = iconify_icon!("lucide:check");
 
-/// The inline style for the [`select`] wrapper. It sets the
-/// `--select-checkmark` custom property to [`CHECKMARK`] as a data URI. The
-/// `::checkmark` pseudo-element can only get the icon from CSS, as a mask
-/// image, and the icon's markup is only available here.
+/// Supplies the checkmark icon as a data URI in `--select-checkmark` so CSS can use it
+/// as a mask.
 fn checkmark_style(cx: &Cx) -> String {
     let svg = format!(
         r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="{}">{}</svg>"#,
@@ -79,24 +64,16 @@ fn checkmark_style(cx: &Cx) -> String {
     style
 }
 
-/// A drop-down list, rendered as a styled native `<select>`.
+/// A styled native select control.
 ///
-/// Child nodes become the content of the `<select>`, usually `<option>` and
-/// `<optgroup>` elements. The `attrs` (such as `name`, `disabled`, or event
-/// handlers) are forwarded to the `<select>`. A `class` among them is not put
-/// on the `<select>` but appended to the classes of the `<span>` that wraps
-/// it, so width classes size the whole control. Like the input, it fills the
-/// width of its container by default. Set `aria-invalid="true"` to show the
-/// error border and focus ring.
+/// Pass `<option>` or `<optgroup>` elements as children. Classes in `attrs` apply to
+/// the wrapper, while other attributes and event handlers go on the `<select>`. The
+/// control fills its container by default. Set `aria-invalid="true"` to show the error
+/// border and focus ring.
 ///
-/// For a styled group heading, add a `<legend>` as the first child of an
-/// `<optgroup>`. Keep the `label` attribute of the `<optgroup>` for browsers
-/// that show the native list.
-///
-/// In browsers that support customizable selects, the list looks like the
-/// dropdown menu component, and the chevron flips while it is open. Other
-/// browsers show the operating system's list. The closed control looks the
-/// same everywhere.
+/// Browsers with customizable select support also style the picker. For a styled group
+/// heading, place a `<legend>` first inside an `<optgroup>` and keep its `label`
+/// attribute for browsers that use the native picker.
 ///
 /// ```ignore
 /// view! {
@@ -113,11 +90,11 @@ pub async fn select(
     #[default] mut attrs: Attributes,
     #[default] child: Child<'_>,
 ) -> Result<impl View> {
-    // `appearance: base-select` turns on the customizable list. It is set
-    // from the wrapper because the descendant selector has a higher
-    // specificity than the `appearance-none` fallback, so stylesheet order
-    // does not matter. Browsers without support drop the invalid declaration
-    // and keep the fallback.
+    // `appearance: base-select` opts into the customizable picker. It is set
+    // from the wrapper because the descendant selector outranks the
+    // `appearance-none` fallback in specificity, making the outcome
+    // independent of stylesheet order; browsers without support drop the
+    // invalid declaration and keep the fallback.
     Ok(view! {
         <span
             class=(class!(

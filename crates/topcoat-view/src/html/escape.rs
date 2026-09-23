@@ -4,14 +4,11 @@ use memchr::{memchr2, memchr3};
 
 use crate::Formatter;
 
-/// The kind of position in an HTML document that a dynamic value is written
-/// into.
+/// The position in an HTML document that a dynamic value is written into.
 ///
-/// Writing through a context makes the value safe for that position. Where
-/// HTML has character references, the context escapes the significant
-/// characters. Attribute keys and element names have no escape mechanism, so
-/// those ident contexts validate the value instead and panic on characters
-/// that could break out of the position:
+/// Text and values are escaped for their position. Names are validated
+/// because HTML does not decode character references there. Invalid name
+/// characters cause a panic:
 ///
 /// | Context          | `&`     | `<`    | `>`    | `"`      | Other        |
 /// |------------------|---------|--------|--------|----------|--------------|
@@ -23,10 +20,10 @@ use crate::Formatter;
 /// | `ElementName`    | -       | panic  | panic  | panic    | see below    |
 ///
 /// The ident contexts reject ASCII whitespace, ASCII control characters,
-/// `"`, `'`, `<`, `>`, `/`, and `=`. These are the characters that can end
-/// or change a name token in the HTML tokenizer. The check guarantees that
-/// the name cannot break out of its token. It does not check that the name
-/// is valid according to the HTML specification.
+/// `"`, `'`, `<`, `>`, `/`, and `=`: the characters the HTML tokenizer can
+/// treat as ending or altering a name token. This guarantees the identifier
+/// cannot terminate or corrupt its token; it does not check full spec
+/// validity.
 #[non_exhaustive]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum HtmlContext {
@@ -36,16 +33,13 @@ pub enum HtmlContext {
     Text,
     /// A double-quoted attribute value.
     AttributeValue,
-    /// A machine-readable payload inside an HTML comment.
-    ///
-    /// Escaping `>` guarantees the payload cannot contain `-->` and end the
-    /// comment. Escaping `&` and `"` keeps double-quoted strings inside the
-    /// payload unambiguous. Browsers never decode character references in
-    /// comments, so whatever reads the payload must decode them itself.
+    /// A payload inside an HTML comment. Escaping prevents the payload
+    /// from closing the comment. Its consumer must decode character
+    /// references because the browser does not decode comment contents.
     Comment,
-    /// An attribute name, validated rather than escaped.
+    /// An attribute name, validated as an identifier rather than escaped.
     AttributeKey,
-    /// An element's tag name, validated rather than escaped.
+    /// A tag name, validated as an identifier rather than escaped.
     ElementName,
 }
 
@@ -138,11 +132,12 @@ macro_rules! impl_write_escaped {
     };
 }
 
-/// A writer that makes everything written to it safe for one
-/// [`HtmlContext`] before appending it to a [`Formatter`].
+/// A writer created by [`HtmlContext::writer`] that makes everything written
+/// to it safe for its context before appending it to the underlying
+/// [`Formatter`].
 ///
-/// Create one with [`HtmlContext::writer`]. The writer also implements
-/// [`fmt::Write`], so it works with `write!`.
+/// The inherent methods mirror [`fmt::Write`], which the writer also
+/// implements for use with `write!`.
 pub struct HtmlWriter<'a, 'b> {
     context: HtmlContext,
     f: &'a mut Formatter<'b>,
@@ -153,10 +148,10 @@ impl HtmlWriter<'_, '_> {
     ///
     /// # Panics
     ///
-    /// Panics in the ident contexts
-    /// ([`AttributeKey`](HtmlContext::AttributeKey) and
-    /// [`ElementName`](HtmlContext::ElementName)) if `s` contains a character
-    /// that could break out of the name.
+    /// Panics in the ident contexts ([`AttributeKey`](HtmlContext::AttributeKey),
+    /// [`ElementName`](HtmlContext::ElementName)) when `s` contains a
+    /// character that could break out of the identifier, since HTML has no
+    /// escape mechanism there.
     #[track_caller]
     pub fn write_str(&mut self, s: &str) {
         match self.context {
@@ -173,8 +168,8 @@ impl HtmlWriter<'_, '_> {
     ///
     /// # Panics
     ///
-    /// Panics in the ident contexts if `c` could break out of the name, like
-    /// [`write_str`](Self::write_str).
+    /// Panics in the ident contexts when `c` could break out of the
+    /// identifier, like [`write_str`](Self::write_str).
     #[track_caller]
     pub fn write_char(&mut self, c: char) {
         let table = match self.context {

@@ -37,28 +37,26 @@ const HTTP_DATE_END_SECS: u64 = 253_402_300_800;
 
 /// A [`Route`] that serves files from a directory on disk.
 ///
-/// For application assets such as images and stylesheets, prefer Topcoat's
-/// `asset!` macro. It gives files content-hashed URLs that browsers can cache
-/// for a long time, and its Rust handles avoid typos in URL strings.
+/// Use directory serving for files that need fixed URLs or are created at
+/// runtime. For bundled application files, use `asset!` to get content-hashed URLs.
 ///
-/// The [`serve_dir`](RouterBuilderDirectoryExt::serve_dir) and
-/// [`public_dir`](RouterBuilderDirectoryExt::public_dir) builder methods are
-/// shorter ways to register this route.
+/// For simpler registration, use
+/// [`serve_dir`](RouterBuilderDirectoryExt::serve_dir) on the router builder,
+/// or [`public_dir`](RouterBuilderDirectoryExt::public_dir) to serve files
+/// at the site root.
 ///
 /// The path must end in a catch-all parameter. Its value is the file path
-/// inside the directory. For example, `/public/{*file}` with the directory
+/// relative to the directory. For example, `/public/{*file}` with directory
 /// `public` serves `/public/css/site.css` from `public/css/site.css`.
 ///
-/// The route answers `GET` and `HEAD` requests. Responses have a
-/// `Content-Length`, a `Content-Type` based on the file extension, and a
-/// `Last-Modified` header when the file's modification time is known. A
-/// request with a matching `If-Modified-Since` or `If-None-Match: *` header
-/// gets `304 Not Modified` without a body. Files are streamed from disk and
-/// are not cached in memory.
+/// Supports `GET` and `HEAD` and streams files from disk without caching them
+/// in memory. Responses include `Content-Length` and a `Content-Type` based
+/// on the file extension. A valid modification time adds `Last-Modified`.
+/// Conditional requests can return `304 Not Modified` without a body.
 ///
-/// Missing files, files the process cannot read, directories, and paths with
-/// `.` or `..` segments get `404 Not Found`. Dotfiles are served. Symbolic
-/// links are followed, even when they point outside the directory.
+/// Missing files, unreadable files, directories, and paths containing `..`
+/// return `404 Not Found`. Dotfiles are served. Symbolic links are followed,
+/// including links to files outside the directory.
 ///
 /// # Examples
 ///
@@ -93,10 +91,10 @@ pub struct DirectoryRoute {
 }
 
 impl DirectoryRoute {
-    /// Creates a route that serves files from `dir` at `path`.
+    /// Serves files from `dir` at `path`.
     ///
-    /// The catch-all parameter at the end of `path` selects the file inside
-    /// `dir`. A relative `dir` is resolved against the current working
+    /// The final catch-all parameter selects the file within `dir`. Relative
+    /// directories are resolved against the process's current working
     /// directory on each request.
     ///
     /// # Panics
@@ -208,21 +206,22 @@ impl Route for DirectoryRoute {
     }
 }
 
-/// Adds methods for serving directories to [`RouterBuilder`].
+/// Adds directory-serving methods to [`RouterBuilder`].
 ///
-/// For application assets, prefer Topcoat's `asset!` macro, which gives files
-/// content-hashed URLs and Rust handles. These methods suit files that need
-/// fixed URLs or are created at runtime.
+/// Use these methods for files that need fixed URLs or are created at runtime.
+/// Use `asset!` for bundled files with content-hashed URLs.
 ///
-/// Both methods register a [`DirectoryRoute`], so everything documented there
-/// applies here too.
+/// Import this trait to use its methods. See [`DirectoryRoute`] for file
+/// handling and path restrictions.
 pub trait RouterBuilderDirectoryExt {
     /// Serves files from `dir` at `path`.
     ///
-    /// The catch-all parameter at the end of `path` selects the file inside
-    /// `dir`. For example, the route below serves `/downloads/report.pdf` from
-    /// `var/downloads/report.pdf`. This registers
-    /// [`DirectoryRoute::new(path, dir)`](DirectoryRoute::new).
+    /// The final catch-all parameter selects the file within `dir`. For
+    /// example, the route below serves `/downloads/report.pdf` from
+    /// `var/downloads/report.pdf`.
+    ///
+    /// Registers `DirectoryRoute::new(path, dir)` with the builder. See
+    /// [`DirectoryRoute`] for file-serving behavior and restrictions.
     ///
     /// # Panics
     ///
@@ -243,9 +242,11 @@ pub trait RouterBuilderDirectoryExt {
     /// Serves files from `dir` at the site root.
     ///
     /// For example, `public_dir("./public")` serves `./public/logo.svg` at
-    /// `/logo.svg`. This is the same as `serve_dir("/{*file}", dir)`. The
-    /// catch-all does not match `/` itself, so a home page can still be
-    /// registered there.
+    /// `/logo.svg`. This is shorthand for `serve_dir("/{*file}", dir)`.
+    /// The catch-all does not match `/`, so a home page can be registered
+    /// separately.
+    ///
+    /// Registers a [`DirectoryRoute`] with the same behavior and restrictions.
     ///
     /// # Examples
     ///

@@ -3,16 +3,12 @@
 pub use topcoat_runtime::*;
 pub use topcoat_runtime_macro::*;
 
-/// Renders the `<script>` tag that loads the browser runtime.
-///
-/// Place it in the `<head>` of every page that uses signals, event handlers,
-/// bind attributes, procedures, or shards.
+/// The `<script>` tag loading the browser runtime.
 ///
 /// # Panics
 ///
-/// Panics when the router was built without
-/// [`runtime()`](RouterBuilderRuntimeExt::runtime), since the script would
-/// have no routes to talk to.
+/// Panics if the router was built without
+/// [`runtime()`](RouterBuilderRuntimeExt::runtime).
 #[cfg(feature = "view")]
 #[topcoat::view::component]
 pub async fn script(cx: &topcoat::context::Cx) -> topcoat::Result<impl topcoat::view::View> {

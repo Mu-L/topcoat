@@ -4,15 +4,12 @@ use topcoat::{
     view::{Attributes, Child, StaticClass, View, attributes, class, component, view},
 };
 
-/// A stack of sections that the user can open and close.
+/// A group of collapsible sections.
 ///
-/// The accordion holds [`accordion_item`]s. Each item opens and closes
-/// without scripting. To allow only one open item at a time, give every item
-/// the same `name` attribute. The browser then treats them as one group.
+/// Add an `accordion_item` for each section. Items open and close without JavaScript.
+/// Give them the same `name` attribute to allow only one open item at a time.
 ///
-/// The `attrs` (such as `class`) are forwarded to the `<div>`. A `class`
-/// among them is appended to the component's classes. The same holds for the
-/// other accordion components.
+/// `attrs` are forwarded to the outer `<div>`. Extra classes are added to its classes.
 ///
 /// ```ignore
 /// view! {
@@ -40,19 +37,11 @@ pub async fn accordion(
     })
 }
 
-/// The classes that animate an [`accordion_item`] opening and closing.
+/// Classes that animate the section height when it opens or closes.
 ///
-/// The browser wraps everything after the `<summary>` in a
-/// `::details-content` box. Its height animates between zero and the height
-/// of the content, and the overflow is clipped, so the text is revealed
-/// instead of squashed. `interpolate-size` allows the height to animate to
-/// `auto`. The transition also lists `content-visibility` with
-/// `allow-discrete`. Without it, the content would disappear at once when the
-/// item closes. Both properties are listed by name, because `all` does not
-/// include `content-visibility`.
-///
-/// Browsers without `::details-content` ignore these rules and open and close
-/// the item without animation.
+/// The transition includes `content-visibility` with `allow-discrete` to keep the
+/// content visible during animation. Browsers without `::details-content` support use
+/// the native disclosure behavior.
 const ANIMATION: StaticClass = class!(
     "[interpolate-size:allow-keywords] [&::details-content]:h-0 \
      [&::details-content]:overflow-hidden \
@@ -60,14 +49,11 @@ const ANIMATION: StaticClass = class!(
      [&[open]::details-content]:h-auto",
 );
 
-/// One section of an [`accordion`], holding an [`accordion_trigger`] and an
-/// [`accordion_content`].
+/// A collapsible section with a trigger and content.
 ///
-/// It is a `<details>` element, so it opens and closes without scripting. A
-/// `name` attribute puts it in a group in which only one item can be open,
-/// and an `open` attribute makes it start open. Opening and closing are
-/// animated. While the item is open, the `group-open:` variant applies to its
-/// content, which rotates the trigger's chevron.
+/// Uses a native `<details>` element. Pass `open` in `attrs` to open it initially.
+/// Items with the same `name` attribute form a group in which only one item can be
+/// open.
 #[component]
 pub async fn accordion_item(
     #[default] mut attrs: Attributes,
@@ -87,11 +73,9 @@ pub async fn accordion_item(
     })
 }
 
-/// The row that opens and closes an [`accordion_item`], rendered as a
-/// `<summary>`.
+/// The heading that opens and closes an accordion section.
 ///
-/// Child nodes become the row's heading. A chevron is added after them and
-/// rotates when the item opens. The browser's default marker is hidden.
+/// Pass the heading as child content. A chevron shows whether the section is open.
 #[component]
 pub async fn accordion_trigger(
     #[default] mut attrs: Attributes,
@@ -121,7 +105,7 @@ pub async fn accordion_trigger(
     })
 }
 
-/// The content of an [`accordion_item`], shown while the item is open.
+/// The content shown when an accordion section is open.
 #[component]
 pub async fn accordion_content(
     #[default] mut attrs: Attributes,

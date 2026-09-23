@@ -6,19 +6,14 @@ const EVENT_HANDLER_PREFIX = "data-topcoat-on:";
 
 type EventHandler = (event: unknown) => void;
 
-/**
- * Attaches the handler from a `data-topcoat-on:<event>` attribute to its
- * element. The attribute holds JavaScript that evaluates to the handler
- * function, which receives the event wrapped in the runtime's `Event`.
- */
 export function setupEventHandler(el: Element, attr: Attr, scope: Scope): void {
 	if (!attr.name.startsWith(EVENT_HANDLER_PREFIX)) return;
 
 	const name = attr.name.substring(EVENT_HANDLER_PREFIX.length);
 	const expression = compile<EventHandler>(attr.value, `event @${name}`);
 	const handler = expression(scope.runtime.context);
-	// The listener goes away with the scope, since the element may outlive
-	// it: a replacement morphs the element in place and scans it again.
+	// Dispose the listener with its scope. A DOM update may reuse the element
+	// and attach a new listener.
 	el.addEventListener(name, (event) => handler(new Event(event)), {
 		signal: scope.abortSignal,
 	});

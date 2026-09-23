@@ -1,6 +1,6 @@
 # Asset
 
-An image declared with `asset!`, bundled by the `topcoat` CLI and served under a content-hashed URL.
+An image declared with `asset!` and served at a URL based on its content.
 
 Run it with:
 

@@ -1,12 +1,10 @@
-/// Builds a [`Cookie`](crate::Cookie) with a syntax that mirrors the
-/// [`Set-Cookie`](https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Set-Cookie)
-/// header.
+/// Builds a [`Cookie`](crate::Cookie) using syntax similar to the
+/// [`Set-Cookie`](https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Set-Cookie) header.
 ///
-/// The macro takes `name = value`, followed by any number of attributes, each
-/// after a `;`. The name is a string literal, an identifier, or a
-/// parenthesized expression. The value can be any expression.
+/// Start with `name = value`, then separate attributes with `;`. Write a flag
+/// such as `Secure` on its own. Other attributes use `Attribute = value`.
 ///
-/// | Attribute  | Form                       | Sets           |
+/// | Attribute  | Form                       | Maps to        |
 /// |------------|----------------------------|----------------|
 /// | `Secure`   | flag, or `Secure = bool`   | `Secure`       |
 /// | `HttpOnly` | flag, or `HttpOnly = bool` | `HttpOnly`     |
@@ -16,10 +14,12 @@
 /// | `MaxAge`   | `MaxAge = duration`        | `Max-Age=...`  |
 /// | `Expires`  | `Expires = time`           | `Expires=...`  |
 ///
-/// A bare `Secure` or `HttpOnly` turns the flag on. The `Secure = is_prod`
-/// form takes a boolean expression instead, and `false` leaves the flag out of
-/// the header. `SameSite` accepts the bare names `Lax`, `Strict`, and `None`,
-/// or any expression of type [`SameSite`](crate::SameSite).
+/// Use a string literal, identifier, or parenthesized expression for the name.
+/// Values and attribute values accept expressions. `SameSite` also accepts
+/// the bare variant names `Lax`, `Strict`, and `None`.
+///
+/// To set a flag conditionally, pass a boolean expression such as
+/// `Secure = is_prod`. A false value omits the attribute.
 ///
 /// # Examples
 ///
@@ -51,8 +51,8 @@ macro_rules! cookie {
     }};
 }
 
-/// Applies the `;`-separated attribute list of [`cookie!`] to a cookie, one
-/// attribute per rule, recursing on the rest.
+/// Applies the `;`-separated attribute list from [`cookie!`] to a builder,
+/// one attribute per rule, recursing on the remainder.
 #[doc(hidden)]
 #[macro_export]
 macro_rules! __cookie_attrs {

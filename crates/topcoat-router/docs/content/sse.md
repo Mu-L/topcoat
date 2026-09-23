@@ -1,10 +1,10 @@
 Server-sent events for Topcoat routes.
 
-[Server-sent events](https://developer.mozilla.org/en-US/docs/Web/API/Server-sent_events) (SSE) send a one-way stream of events from the server to the client over a normal HTTP response. This module needs the `sse` feature. It provides the [`Sse`] response, which wraps a `Stream` of [`Event`]s, responds with `Content-Type: text/event-stream`, and sends each event as soon as the stream yields it. In the browser, the built-in `EventSource` subscribes to the stream and reconnects by itself when the connection is lost.
+Server-sent events (SSE) send events from the server to a client over one HTTP response. Enable the `sse` feature and return an [`Sse`] response containing a stream of [`Event`]s. In a browser, use `EventSource` to subscribe and reconnect when the connection is lost.
 
 # Streaming events
 
-A route sends an event stream by returning an [`Sse`] that wraps the stream of events. Build an [`Event`] field by field. [`data`](Event::data) sets the payload, and [`json_data`](Event::json_data) serializes a value to JSON as the payload. [`event`](Event::event) sets the event type, which decides the listeners an `EventSource` passes the event to. [`id`](Event::id) and [`retry`](Event::retry) control reconnection.
+Return [`Sse`] with the stream of events to send. Build each [`Event`] with [`data`](Event::data) for text or [`json_data`](Event::json_data) for a serialized value. Optional fields can name the event and control reconnection.
 
 ```rust
 use futures_core::Stream;
@@ -25,11 +25,11 @@ async fn events() -> Result<Sse<impl Stream<Item = Result<Event>> + use<>>> {
 }
 ```
 
-The `use<>` bound makes sure the stream does not borrow the request context, which a route's response must not do. The connection stays open until the stream ends, the stream yields an `Err`, or the client disconnects. A disconnect drops the stream, so put cleanup code in the stream's `Drop`.
+The `use<>` bound prevents the returned stream from borrowing the request context. The response ends when the stream finishes, yields an error, or the client disconnects. Put cleanup in the stream's `Drop` implementation so it also runs on disconnect.
 
 # Reading the request context
 
-The stream lives on after the handler that returned it, so it cannot borrow the `Cx` the route was called with. Clone the `Cx` and move the clone into the stream instead. The clone reads the same app and request context.
+A stream outlives the handler that returned it, so it cannot borrow the `Cx` the route was called with. Clone the `Cx` and move the owned handle into the stream instead; it reads the same app and request context.
 
 ```rust
 use futures_core::Stream;
@@ -59,11 +59,11 @@ async fn greetings(cx: &Cx) -> Result<Sse<impl Stream<Item = Result<Event>> + us
 
 # Keeping quiet streams alive
 
-Proxies and load balancers close connections that look idle. [`keep_alive`](Sse::keep_alive) sends events that the client ignores when the stream has been quiet for a while. [`KeepAlive::new`] sends an empty comment after 15 seconds without an event. Use [`interval`](KeepAlive::interval), [`text`](KeepAlive::text), and [`event`](KeepAlive::event) to change what is sent and when.
+Proxies and load balancers may close idle connections. Configure [`keep_alive`](Sse::keep_alive) to send comments while no events are ready. Use [`KeepAlive`] to choose the interval and content.
 
 # Resuming after a reconnect
 
-When an `EventSource` reconnects, it sends the [`id`](Event::id) of the last event it received in the `Last-Event-ID` request header. Read it with [`last_event_id`] to continue the stream where the client left off, instead of starting from the beginning.
+A reconnecting `EventSource` echoes the [`id`](Event::id) of the last event it received in the `Last-Event-ID` request header. Read it with [`last_event_id`] to resume the stream where the client left off instead of replaying it from the start.
 
 ```rust
 use futures_core::Stream;

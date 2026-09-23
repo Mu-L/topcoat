@@ -4,16 +4,13 @@ use topcoat::{
     view::{Attributes, Child, StaticClass, View, attributes, class, component, view},
 };
 
-/// A trigger that opens and closes a floating panel of actions.
+/// A floating action menu controlled by a trigger.
 ///
-/// The menu is a `<details>` element, so it works without scripting. Clicking
-/// the [`dropdown_menu_trigger`] opens and closes the
-/// [`dropdown_menu_content`] panel. Clicking outside the menu does not close
-/// it. That needs scripting.
-///
-/// The `attrs` (such as `class` or `open`) are forwarded to the `<details>`.
-/// A `class` among them is appended to the component's classes. The same
-/// holds for the other dropdown menu components.
+/// Uses a native `<details>` element, so the trigger opens and closes it without
+/// JavaScript. Closing it on an outside click requires application scripting. `attrs`
+/// are forwarded to the `<details>`, with extra classes added to its classes.
+/// Items use normal Tab navigation. The component does not implement the ARIA menu
+/// pattern's arrow-key navigation.
 ///
 /// ```ignore
 /// view! {
@@ -46,18 +43,15 @@ pub async fn dropdown_menu(
     })
 }
 
-/// The classes that make a `<summary>` a plain trigger: the default marker is
-/// hidden and the cursor is a pointer.
+/// Classes that hide the native disclosure marker and show a pointer cursor.
 const TRIGGER: StaticClass = class!("cursor-pointer list-none [&::-webkit-details-marker]:hidden",);
 
-/// The trigger of a [`dropdown_menu`]: a `<summary>` that opens and closes
-/// the menu.
+/// A trigger that opens or closes the dropdown menu.
 ///
-/// Child nodes become the trigger's content. The trigger has no style of its
-/// own. To make it look like a button, pass the classes from
-/// [`button_variants`](super::button::button_variants) in `attrs`. While the
-/// menu is open, the `group-open:` variant applies inside it, so a chevron
-/// with `group-open:rotate-180` flips when the menu opens.
+/// Pass its label as children. To style it as a button, pass classes from
+/// [`button_variants`](super::button::button_variants) through `attrs`. The attributes
+/// go on the `<summary>`. Use `group-open:` classes to style children while the menu is
+/// open.
 ///
 /// ```ignore
 /// view! {
@@ -85,10 +79,7 @@ pub async fn dropdown_menu_trigger(
     })
 }
 
-/// The classes shared by the [`dropdown_menu_content`] and
-/// [`dropdown_menu_sub_content`] panels: a raised surface styled like a card.
-/// `z-50` puts it above later content. It sets its own background and text
-/// color, so it looks the same on any background.
+/// Classes for floating menu panels with their own background, border, and text color.
 const PANEL: StaticClass = class!(
     "absolute z-50 min-w-40 rounded-lg border border-border bg-popover p-1 \
      text-popover-foreground shadow-sm",
@@ -96,7 +87,7 @@ const PANEL: StaticClass = class!(
 
 /// The floating panel of a [`dropdown_menu`], holding the menu's items.
 ///
-/// The panel opens below the trigger, aligned to its left edge.
+/// The panel drops directly below the trigger, aligned to its left edge.
 #[component]
 pub async fn dropdown_menu_content(
     #[default] mut attrs: Attributes,
@@ -112,10 +103,7 @@ pub async fn dropdown_menu_content(
     })
 }
 
-/// The classes for a [`dropdown_menu_item`] row.
-///
-/// Hover, focus, and press tint the row like a ghost button. The tints use
-/// the foreground color, so they work in both color schemes.
+/// Classes for a menu item and its interaction states.
 const ITEM: StaticClass = class!(
     "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm \
      whitespace-nowrap outline-none hover:bg-foreground/5 focus-visible:bg-foreground/5 \
@@ -133,15 +121,14 @@ pub async fn dropdown_menu_item(
     })
 }
 
-/// A nested submenu among the items of a [`dropdown_menu_content`].
+/// A nested menu that opens from a row in the parent menu.
 ///
-/// Like the [`dropdown_menu`], it is a `<details>` element. Clicking the
-/// [`dropdown_menu_sub_trigger`] opens and closes its
-/// [`dropdown_menu_sub_content`] panel without scripting. The submenu is a
-/// Tailwind group named `sub`, so the `group-open/sub:` variant refers to the
-/// submenu and not to the outer menu. Closing the outer menu hides an open
-/// submenu but does not close it, so the submenu is still open the next time
-/// the menu opens. Closing it as well needs scripting.
+/// Its trigger toggles a native `<details>` element without JavaScript. Closing the
+/// parent hides the submenu but preserves its open state. Resetting that state requires
+/// application scripting.
+///
+/// Use `group-open/sub:` classes to style children while the submenu is open. `attrs`
+/// are forwarded to the `<details>`, with extra classes added to its classes.
 ///
 /// ```ignore
 /// view! {
@@ -169,12 +156,11 @@ pub async fn dropdown_menu_sub(
     })
 }
 
-/// The trigger row of a [`dropdown_menu_sub`]: a `<summary>` styled like a
-/// [`dropdown_menu_item`] that opens and closes the submenu.
+/// The row that opens or closes a submenu.
 ///
-/// Child nodes become the row's label. A chevron that points toward the
-/// submenu is added after them. The row stays tinted while the submenu is
-/// open.
+/// Pass its label as children. A chevron points toward the submenu, and the row stays
+/// highlighted while it is open. `attrs` are forwarded to the `<summary>`, with extra
+/// classes added to its classes.
 #[component]
 pub async fn dropdown_menu_sub_trigger(
     #[default] mut attrs: Attributes,
@@ -199,12 +185,7 @@ pub async fn dropdown_menu_sub_trigger(
     })
 }
 
-/// The floating panel of a [`dropdown_menu_sub`], holding the submenu's items.
-///
-/// The submenu opens next to its trigger, not below it. `left-full` places it
-/// at the right edge of the parent panel, `top-0` aligns its top with the
-/// trigger row, and `ml-1` leaves the same gap as between the menu and its
-/// trigger.
+/// The submenu panel, positioned to the right of its trigger row.
 #[component]
 pub async fn dropdown_menu_sub_content(
     #[default] mut attrs: Attributes,
@@ -220,7 +201,7 @@ pub async fn dropdown_menu_sub_content(
     })
 }
 
-/// A heading for the items that follow it, rendered as a `<p>`.
+/// A non-interactive heading grouping the items after it.
 #[component]
 pub async fn dropdown_menu_label(
     #[default] mut attrs: Attributes,
@@ -239,7 +220,7 @@ pub async fn dropdown_menu_label(
     })
 }
 
-/// A thin line between groups of items, rendered as an `<hr>`.
+/// A hairline rule separating groups of items.
 #[component]
 pub async fn dropdown_menu_separator(#[default] mut attrs: Attributes) -> Result<impl View> {
     Ok(view! {

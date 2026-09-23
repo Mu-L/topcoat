@@ -4,11 +4,10 @@ use tokio::net::TcpListener;
 
 use crate::router::{Listener, RouterService, internal_serve};
 
-/// Serves a router on a listener you bound yourself.
+/// Serves a router and notifies the dev server when it is ready.
 ///
-/// The listener can be any [`Listener`]: a [`TcpListener`] to serve HTTP
-/// directly, or on Unix a `UnixListener` to serve behind a reverse proxy that
-/// forwards requests to a socket path:
+/// Accepts any [`Listener`]. For example, use a Unix socket to receive
+/// requests from a reverse proxy:
 ///
 /// ```no_run
 /// # #[cfg(unix)]
@@ -20,14 +19,9 @@ use crate::router::{Listener, RouterService, internal_serve};
 /// # }
 /// ```
 ///
-/// The server runs until the process receives a shutdown signal: Ctrl+C, or
-/// `SIGTERM` on Unix. It then shuts down gracefully, giving in-flight
-/// requests the service's shutdown timeout to finish (see
-/// [`RouterService::shutdown_timeout`]). To shut down on a custom signal
-/// instead, use [`serve_until`].
-///
-/// Under `topcoat dev`, this tells the dev server that the application is
-/// ready (see [`notify_ready`](crate::dev::notify_ready)).
+/// Ctrl+C, or `SIGTERM` on Unix, starts graceful shutdown. Active requests
+/// have until [`RouterService::shutdown_timeout`] expires to finish. Use
+/// [`serve_until`] to choose a different shutdown signal.
 ///
 /// # Errors
 ///
@@ -39,12 +33,10 @@ pub async fn serve(
     serve_until(listener, service, shutdown_signal()).await
 }
 
-/// Serves a router on a listener until `signal` completes.
+/// Serves a router until `signal` completes.
 ///
-/// Works like [`serve`], but shuts down when the given future resolves
-/// instead of on a process signal. When `signal` completes, the server stops
-/// accepting connections and gives in-flight requests the service's shutdown
-/// timeout to finish (see [`RouterService::shutdown_timeout`]).
+/// When the future resolves, the server stops accepting connections. Active
+/// requests have until [`RouterService::shutdown_timeout`] expires to finish.
 ///
 /// # Errors
 ///
@@ -59,17 +51,13 @@ pub async fn serve_until(
     internal_serve(listener, service.into(), signal).await
 }
 
-/// Serves a router on the host and port from the environment.
+/// Starts a router on the configured host and port.
 ///
-/// Binds a TCP listener to the `HOST` and `PORT` environment variables, or to
-/// `127.0.0.1` and `3000` when they are not set, and serves the router on it
-/// like [`serve`].
+/// The listener binds to the `HOST` and `PORT` environment variables,
+/// or `127.0.0.1` and `3000` when unset.
 ///
-/// The server runs until the process receives a shutdown signal: Ctrl+C, or
-/// `SIGTERM` on Unix. It then shuts down gracefully, giving in-flight
-/// requests the service's shutdown timeout to finish (see
-/// [`RouterService::shutdown_timeout`]). To shut down on a custom signal
-/// instead, use [`serve_until`].
+/// Uses [`serve`] for graceful shutdown on process signals. To choose a
+/// different shutdown signal, bind a listener and call [`serve_until`].
 ///
 /// # Errors
 ///

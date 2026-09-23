@@ -21,9 +21,7 @@ use crate::{
     models::{Drink, Roast, drinks},
 };
 
-/// The menu, with a search box that filters the drinks as you type.
-///
-/// The `menu` module adds a URL segment, so this page renders at `/menu`.
+// The `menu` module adds a URL segment: this page renders at /menu.
 #[page]
 pub async fn page(cx: &Cx) -> Result<impl View> {
     // The signal lives in the browser; typing filters without a reload.
@@ -107,8 +105,8 @@ async fn drink_grid(cx: &Cx, query: String) -> Result<impl View> {
     })
 }
 
-/// The grid's stand-in while the menu loads: skeleton cards in the same
-/// layout, so the page does not jump when the drinks land.
+/// Placeholder cards shown while the menu loads. Their layout matches the menu to
+/// reduce movement when the drinks appear.
 #[component]
 async fn drink_grid_skeleton() -> Result<impl View> {
     Ok(view! {
@@ -158,7 +156,7 @@ async fn drink_card(drink: &Drink) -> Result<impl View> {
     })
 }
 
-/// The roast as a badge; each profile gets its own weight.
+/// A badge for the drink's roast profile.
 #[component]
 async fn roast_badge(roast: Roast) -> Result<impl View> {
     Ok(view! {

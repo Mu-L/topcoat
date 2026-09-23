@@ -2,17 +2,15 @@ use cookie::{Cookie, CookieJar as RawCookieJar, Key};
 
 use crate::Cookies;
 
-/// A [`Cookies`] adapter that signs cookies on write and verifies them on
-/// read, using a [`Key`].
+/// A [`Cookies`] adapter that signs cookies written through it and verifies
+/// cookies read through it, using a [`Key`].
 ///
-/// Signing makes a cookie tamper-proof but leaves its value readable by the
-/// client. Reads return `None` when the cookie is missing or its signature
-/// does not verify.
+/// Signing detects changes to a cookie's value while leaving it readable by
+/// the client. Create a signed jar with [`Cookies::signed`] or
+/// [`signed_cookies`](crate::signed_cookies).
 ///
-/// The signature covers only the cookie's value, so this adapter combines
-/// with name prefixes and attribute combinators in any order.
-///
-/// Created by [`Cookies::signed`] or [`signed_cookies`](crate::signed_cookies).
+/// Reads return `None` for missing cookies or invalid signatures. This adapter
+/// can be combined with prefixes and attribute defaults.
 #[derive(Debug, Clone, Copy)]
 pub struct SignedJar<'key, J> {
     inner: J,

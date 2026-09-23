@@ -3,17 +3,12 @@ use topcoat_core::{context::Cx, error::Result};
 
 use crate::response::{IntoResponse, Response};
 
-/// Creates a `503 Service Unavailable` error with a `Retry-After` header of
-/// `retry_after_secs` seconds.
+/// Builds a service-unavailable (HTTP 503) response carrying a `Retry-After`
+/// hint, in seconds.
 ///
-/// Return it when the server is busy for a short time, for example because it
-/// sheds load or a dependency is overloaded. Clients and load balancers read a
-/// 503 as "busy, try again later", while a
-/// [`500 Internal Server Error`](crate::error::internal_server_error) reads as
-/// "broken".
-///
-/// The `Retry-After` header tells clients when to try again, so they do not
-/// all invent their own backoff and retry at the same moment.
+/// Return this when the service is temporarily unable to accept a request.
+/// The `Retry-After` header tells the client how long to wait before trying
+/// again.
 ///
 /// # Examples
 ///
@@ -35,10 +30,10 @@ pub fn service_unavailable(retry_after_secs: u64) -> ServiceUnavailableError {
     ServiceUnavailableError::new(retry_after_secs)
 }
 
-/// A `503 Service Unavailable` error.
+/// A service-unavailable response carried as the `Err` variant of a handler
+/// `Result`.
 ///
-/// Create one with [`service_unavailable`]. Returned from a handler, it renders
-/// as a `503 Service Unavailable` response with a `Retry-After` header.
+/// Construct one with [`service_unavailable`].
 #[derive(Debug, Clone)]
 pub struct ServiceUnavailableError {
     retry_after_secs: u64,
@@ -49,7 +44,7 @@ impl ServiceUnavailableError {
         Self { retry_after_secs }
     }
 
-    /// Returns the `Retry-After` value of the response, in seconds.
+    /// The `Retry-After` value this response carries, in seconds.
     #[must_use]
     pub fn retry_after_secs(&self) -> u64 {
         self.retry_after_secs

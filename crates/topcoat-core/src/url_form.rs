@@ -1,14 +1,12 @@
-//! Whether URLs render relative to the site root or absolute.
+//! The form URLs render in: relative to the site root or absolute.
 
 use crate::context::{Cx, try_request_context};
 
 /// The form a URL renders in when the code writing it does not choose one.
 ///
-/// Relative URLs work anywhere within the site. Content that leaves the site,
-/// such as links and images in emails, feeds, or sitemaps, needs absolute
-/// URLs. The form in effect is a request context value that you read with
-/// [`url_form`]. URLs render relative unless an enclosing scope registers
-/// [`UrlForm::Absolute`] with [`Cx::with`].
+/// URLs are relative to the site root by default. Register the absolute form
+/// with [`Cx::with`] when the rendered content needs complete URLs. Read the
+/// current choice with [`url_form`].
 ///
 /// ```
 /// use topcoat::context::{Cx, UrlForm, url_form};
@@ -29,9 +27,9 @@ pub enum UrlForm {
     Absolute,
 }
 
-/// Returns the [`UrlForm`] in effect for `cx`.
+/// Returns the [`UrlForm`] in effect for this context.
 ///
-/// This is [`Relative`](UrlForm::Relative) unless an enclosing scope
+/// URLs render [`Relative`](UrlForm::Relative) unless an enclosing scope
 /// registered another form on the request context.
 #[inline]
 #[must_use]

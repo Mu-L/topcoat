@@ -1,10 +1,10 @@
-Topcoat UI is a collection of premade components that you can restyle: buttons, cards, form controls, menus, and more. Like [shadcn/ui](https://ui.shadcn.com), you do not use them as a library dependency. Instead, `topcoat ui add` copies the source of a component into your project. From then on it is your code, and you can restyle, rewrite, and extend it.
+Topcoat UI provides components you can copy into your project and edit. Run `topcoat ui add` to install a component, then change its source to suit your app.
 
-Each component is a normal `#[component]` function built with `view!`. It is styled with Tailwind utility classes that use a small set of theme tokens, and `topcoat ui init` installs the stylesheet that defines those tokens.
+Components use `#[component]`, `view!`, and Tailwind classes. Their colors and other shared styles come from a theme stylesheet installed by `topcoat ui init`.
 
 # Setup
 
-You need the [`topcoat` CLI](https://github.com/tokio-rs/topcoat/blob/main/crates/topcoat/docs/getting_started.md#install-the-cli) and the [Tailwind integration](https://docs.rs/topcoat/latest/topcoat/tailwind/index.html). In addition, enable the `ui` feature:
+Set up the [`topcoat` CLI](https://github.com/tokio-rs/topcoat/blob/main/crates/topcoat/docs/getting_started.md#install-the-cli) and the [Tailwind integration](crate::tailwind), then enable the `ui` feature. This example also uses Fontsource to load the theme's font:
 
 ```toml
 [dependencies]
@@ -16,22 +16,21 @@ topcoat = { version = "0.8.1", default-features = false, features = ["tailwind"]
 
 ## Initialize the package
 
-In the package directory, run:
+From the package directory, run:
 
 ```sh
 topcoat ui init
 ```
 
-This does two things:
+The command creates `components.toml` to track installed components and writes the theme to `styles.css`. Check both files into version control. Run `init` before using the other UI commands.
 
-- It creates `components.toml` at the package root. This file records which components you added, from which registry, and at which version. The other `topcoat ui` commands need it. Commit it to version control.
-- It installs a theme by writing its CSS to `styles.css` at the package root. If the registry offers only one theme, that theme is installed. If it offers several, you are asked to choose one, or you can name it with `--theme`.
+If several themes are available, the command asks you to choose one. Pass `--theme <name>` to select it directly.
 
-Components are installed into `src/components` by default. Pass `--components-dir` to use another directory. In a workspace, choose the package with `--package <name>`, like `cargo -p`. Every `topcoat ui` subcommand accepts it.
+Components install into `src/components` by default. Use `--components-dir` to choose another directory. In a workspace, use `--package <name>` with any `topcoat ui` subcommand to select the package.
 
 ## Wire the theme into Tailwind
 
-The installed `styles.css` is your Tailwind input. It contains the `@import "tailwindcss"` directive, the theme's design tokens, and a `@source` directive that scans `src/**/*.rs` for utility classes. Pass it to the Tailwind build in `build.rs`:
+Use the installed `styles.css` as your Tailwind input. It imports Tailwind, defines the theme, and tells Tailwind to scan your Rust source for classes. Configure `build.rs` to use it:
 
 ```rust,no_run
 fn main() {
@@ -44,7 +43,7 @@ fn main() {
 
 ## Load the stylesheet and the font
 
-Link the generated stylesheet from your root layout, like in any Tailwind setup. The built-in theme sets `--font-sans` to Geist, but it does not include the font files. The easiest way to load the font is the [Fontsource integration](https://docs.rs/topcoat/latest/topcoat/font/index.html), which is the `font-fontsource` feature from the setup above:
+Load the generated stylesheet in your root layout. If the theme names a web font, load that font too. For example, use the [Fontsource integration](crate::font) to load Geist:
 
 ```rust,ignore
 use topcoat::{
@@ -72,7 +71,7 @@ async fn layout(slot: Slot<'_>) -> Result<impl View> {
 }
 ```
 
-The theme styles `<body>` with the theme's background, text color, and font, so loading the stylesheet is all you need to do.
+The theme applies its base styles to `<body>` when the stylesheet loads.
 
 # Adding components
 
@@ -82,26 +81,21 @@ Add components by name:
 topcoat ui add button
 ```
 
-For each component, `topcoat ui add`:
+The command copies the source into your components directory, adds its module declaration, and records the installation in `components.toml`. It also installs any components the requested component depends on.
 
-- copies its source into the components directory, for example `src/components/button.rs`,
-- adds a `pub mod button;` line to `src/components.rs`, so the module is part of your crate (if you use `src/components/mod.rs` instead, that file is updated; if both files exist, the command fails instead of guessing),
-- installs the other components it depends on, and
-- records the component in `components.toml`.
+Module declarations go in `src/components.rs`, or in `src/components/mod.rs` if that file already exists. If both files exist, resolve the conflict before adding components.
 
-You still need to declare the `components` module itself once, with `mod components;` in your crate root.
-
-To see which components are available, run:
+To see what is on offer, run:
 
 ```sh
 topcoat ui list
 ```
 
-It lists the components of every registry along with their install status. Pass `--installed` to show only the components you have installed.
+The list shows available components and their install status. Use `--installed` to show only installed components.
 
 # Using components
 
-Installed components are normal modules in your crate. Import them and use them like any other component:
+Installed components are ordinary modules in your crate. Import them and use them like any other component:
 
 ```rust,ignore
 mod components;
@@ -155,12 +149,12 @@ async fn sign_in() -> Result<impl View> {
 }
 ```
 
-The components follow a few conventions:
+The components share a few conventions:
 
-- **Variants and sizes are enums.** Components with visual variants take them as props with defaults, for example `button(variant: ButtonVariant::Destructive, size: ButtonSize::Sm, ...)`.
-- **Attributes are forwarded.** The `attrs: Attributes` prop, built with the `attributes!` macro, is forwarded to the component's main element. So `id`, `type`, `disabled`, event handlers, and other attributes work as usual. A `class` in `attrs` is added to the component's own classes instead of replacing them.
-- **Child content is the content.** Child nodes you pass become the content of the component, so text, icons, and other components can be combined freely.
-- **Class strings are reusable.** Components with variants have a `*_variants` function that returns their full class string. Use it to give another element the same look, for example a link that looks like a button:
+- **Variants and sizes use enum props.** For example, pass `variant: ButtonVariant::Destructive` to style a destructive action.
+- **Extra attributes go in `attrs`.** Build them with `attributes!`. Each component documents which element receives them. Classes are added to the existing classes without resolving conflicting Tailwind utilities. Use a more specific selector or edit the component to override a default reliably.
+- **Pass content as children.** Children can contain text, HTML, and other components.
+- **Reuse styles through class helpers.** For example, `button_variants` can give a link the appearance of a button:
 
   ```rust,ignore
   view! {
@@ -170,29 +164,29 @@ The components follow a few conventions:
   }
   ```
 
-For everything else, read the component's source: it is in your project now, and its doc comments explain how to use it. The [`ui` example](https://github.com/tokio-rs/topcoat/tree/main/examples/ui) shows every built-in component in a runnable showcase.
+Read each component's source for its props and behavior. The [`ui` example](https://github.com/tokio-rs/topcoat/tree/main/examples/ui) provides a runnable showcase.
 
 # Theming
 
-A theme is a small set of design tokens. These are CSS variables for the page background, text colors, the primary and destructive colors, borders, the focus ring, and shadows. They are defined on `:root`, and again on `.dark` for dark mode. Components only use tokens (`bg-primary`, `text-muted-foreground`, `border-border`, ...), never raw colors, so when you edit the values in `styles.css`, every component changes with them.
+A theme defines shared styles with CSS variables in `styles.css`. Components use classes such as `bg-primary` and `text-muted-foreground` to read those variables. Edit the values to change the theme across your app.
 
-`--background` is the page color. `--card` and `--card-foreground` set the background and text color of cards and panels, and `--popover` and `--popover-foreground` do the same for floating menus and popovers. In the neutral theme, these surfaces are slightly lighter than the page, but you can change each color on its own.
+For example, `--background` sets the page color, while `--card` and `--card-foreground` set card colors. These values can be adjusted independently.
 
-Dark mode is opt-in. Put the `dark` class on an element, usually `<html>`, and everything inside it uses the dark values. Hover and press states have no tokens of their own. Components draw them with the fill color at a lower opacity, which works in both light and dark mode.
+Add the `dark` class to `<html>` to enable dark mode for the page, or to another ancestor to enable it for a subtree. Edit the `.dark` variables in `styles.css` to change its colors.
 
-`init` writes `styles.css` once, and no command changes it after that. Edit it like any other file in your project.
+The UI commands preserve `styles.css` after initialization, so you can customize it freely.
 
 # Updating components
 
-The version of a component is a hash of its source. `components.toml` records the hash when you add a component. `topcoat ui list` compares it with the hash of the registry's current source, and marks a component as having an update when the two differ. Your own edits to the installed file do not count, because only the registry's source is hashed.
+`topcoat ui list` reports an update when a component's registry source has changed since installation. It compares the current registry hash with the hash saved in `components.toml`. Edits to your local copy do not affect this comparison.
 
-To get the new source, add the component again:
+To pull the newer source, re-add the component:
 
 ```sh
 topcoat ui add button --overwrite
 ```
 
-This replaces your file with the registry's current source. If you changed the component, compare the two versions first and apply your changes again.
+This replaces your file with the registry's source. Save any local changes first, then review the diff and reapply the changes you want to keep.
 
 # Removing components
 
@@ -202,11 +196,11 @@ Remove a component by name:
 topcoat ui remove button
 ```
 
-This deletes the component's file, removes its module declaration, and removes it from `components.toml`. Components that were installed as its dependencies stay installed.
+This deletes the component's file, removes its module declaration, and drops it from `components.toml`. It does not remove components that were installed as its dependencies.
 
 # Custom registries
 
-`topcoat ui` can install components from other registries too. A registry is a crate with a `[package.metadata.topcoat-ui]` key. The key points at a directory, relative to the crate root, that contains a `registry.toml` manifest. The manifest lists the themes and components, and their source paths are relative to that directory:
+A custom registry is a Cargo crate that provides component sources and a `registry.toml` manifest. Point to the manifest's directory in the crate's metadata:
 
 ```toml
 # Cargo.toml of the registry crate
@@ -226,22 +220,19 @@ source = "src/components/button.rs"
 
 [components.data_table]
 source = "src/components/data_table.rs"
-# Installed together with data_table. An entry is either the name of a
-# component in the same registry, or a table naming a component in another
-# registry by that registry's crate name.
+# Installed alongside data_table. An entry names a component in the same
+# registry, or one in another registry by that registry's crate name.
 dependencies = ["button", { registry = "other-registry-crate", name = "spinner" }]
 ```
 
-The manifest has no versions or hashes. The version of a component is always the hash of its current source, so to ship an update, publish a new crate version with the changed source.
+Component versions are computed from their source. To distribute an update, publish a new version of the registry crate with the changed source.
 
-To use a registry, add its crate as a direct dependency in your `Cargo.toml`. Its components then appear in `topcoat ui list`, and you can add them:
+To consume a registry, declare its crate as a direct dependency in `Cargo.toml`. Its components then show up in `topcoat ui list` and can be added with:
 
 ```sh
 topcoat ui add data_table --registry my-registry-crate
 ```
 
-Without `--registry`, `topcoat ui add` uses the built-in registry, named `topcoat`, if it has the component. If only one other registry has it, you are asked to confirm before it is added from there. If several do, pass `--registry` to choose. All registries install into the same components directory, and each file can hold only one component. If a component from another registry already uses the file, you are asked whether to replace it.
+Without `--registry`, the command prefers the built-in `topcoat` registry. It asks for confirmation if the component is available only from another registry. All registries share the same install directory. If a component would replace a file from another registry, the command asks before replacing it.
 
-The built-in registry is the one exception to the direct dependency rule. The `ui` feature of `topcoat` already depends on its crate, so you do not add it to your `Cargo.toml`.
-
-`topcoat ui init` always installs its theme from the built-in registry.
+The built-in registry is available through Topcoat's `ui` feature and needs no separate dependency.

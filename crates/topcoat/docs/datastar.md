@@ -1,8 +1,8 @@
-[Datastar](https://data-star.dev) is a small client-side framework where the server drives page updates. `data-*` attributes bind reactive signals to elements, and actions like `@get` and `@post` send those signals to the server. The server answers with events that patch HTML elements and signal values into the page. It can send one event or keep a stream open and send many.
+[Datastar](https://data-star.dev) updates HTML and reactive signals from server responses. Use `data-*` attributes to bind signals to elements and actions such as `@get` to send requests.
 
-Datastar receives these events as [server-sent events](crate::router::content::sse), so this module builds on the router's [`Sse`] response. Each event type below converts into an SSE [`Event`], and each can also be returned from a handler on its own. On the request side, an extractor reads the signals that every action sends.
+Topcoat extracts signals from requests and creates Datastar responses. Return one update from a handler or send several over a [server-sent event stream](crate::router::content::sse).
 
-Everything below is re-exported from `topcoat::datastar` and gated behind the `datastar` feature, which also turns on the router's `sse` feature.
+Everything below is re-exported from `topcoat::datastar` and gated behind the `datastar` feature, which also enables the router's `sse` feature.
 
 ```toml
 # Cargo.toml
@@ -12,7 +12,7 @@ topcoat = { version = "0.8.1", features = ["datastar"] }
 
 # Loading the Datastar script
 
-The browser must load the Datastar script before any `data-*` attribute does anything. You can point a `<script>` tag at a CDN, or declare the script as a Topcoat asset so that your app serves it itself:
+Load the Datastar script before using its attributes. This example bundles the script as a Topcoat asset:
 
 ```rust
 use topcoat::{
@@ -39,11 +39,11 @@ async fn root(slot: Slot<'_>) -> Result<impl View> {
 }
 ```
 
-See the [assets guide](crate::asset) for how to load the asset bundle on your router.
+See the [assets guide](crate::asset) for loading the asset bundle on your router.
 
 # Reading signals
 
-A Datastar action sends the page's signals with every request, except signals whose name starts with an underscore. GET requests carry them as JSON in the `datastar` query parameter. All other requests carry them as a JSON body. The [`Signals`] extractor reads them from either place and deserializes them into your type:
+The [`Signals`] extractor deserializes request signals into your type. It reads JSON from the `datastar` query parameter for GET requests and from the body for other methods.
 
 ```rust
 use serde::{Deserialize, Serialize};
@@ -66,11 +66,11 @@ async fn increment(Signals(counter): Signals<Counter>) -> Result<PatchSignals> {
 }
 ```
 
-To also accept requests that do not come from Datastar, wrap the extractor in [`Option`]. It yields [`None`] when the request has no `Datastar-Request` header, and still returns an error when the signals cannot be read. To check for that header without reading the signals, call [`datastar_request`] with a `cx: &Cx`.
+Use `Option<Signals<T>>` to also accept requests without Datastar. It returns `None` unless `Datastar-Request` is `true`. A Datastar request with malformed signals still returns an error. Use [`datastar_request`] to check the header directly.
 
 # Patching elements
 
-[`PatchElements`] sends HTML for Datastar to patch into the page. By default, Datastar morphs each element into the existing element with the same `id`. Call [`selector`](PatchElements::selector) to target other elements, and [`mode`](PatchElements::mode) to pick a different [`ElementPatchMode`]. When a handler returns a patch on its own, the response is a stream that sends this one event and then ends:
+[`PatchElements`] updates page elements with HTML. By default, Datastar matches elements by `id` and morphs them to match the response. Use [`selector`](PatchElements::selector) and [`mode`](PatchElements::mode) to choose another target or update behavior. Returned from a handler, the patch sends one SSE event and closes the stream:
 
 ```rust
 use topcoat::{
@@ -90,28 +90,15 @@ async fn create(cx: &Cx) -> Result<PatchElements> {
 }
 ```
 
-[`PatchElements::remove`] creates a patch that removes the elements matching a selector from the page.
+[`PatchElements::remove`] deletes elements matching a selector.
 
 # Patching signals
 
-[`PatchSignals`] updates the signals in the browser. The payload is a JSON object that is merged into the existing signals. A signal set to `null` is removed. [`PatchSignals::json`] serializes the payload from any `Serialize` value, and [`only_if_missing`](PatchSignals::only_if_missing) limits the patch to signals that do not exist yet.
-
-```rust
-use serde_json::json;
-use topcoat::datastar::PatchSignals;
-
-# fn example() -> topcoat::Result<PatchSignals> {
-// Sets `count`, removes `draft`, and sets `theme` only if it is not set yet.
-let patch = PatchSignals::json(&json!({ "count": 0, "draft": null }))?;
-let defaults = PatchSignals::json(&json!({ "theme": "dark" }))?.only_if_missing(true);
-# let _ = patch;
-# Ok(defaults)
-# }
-```
+[`PatchSignals`] merges a JSON object into the browser's signals. Set a value to `null` to remove it, or use [`only_if_missing`](PatchSignals::only_if_missing) to preserve existing values. [`PatchSignals::json`] serializes the object from a `Serialize` value.
 
 # Streaming events
 
-For live updates, return an [`Sse`] stream and convert each patch into an [`Event`] with `Into`. Everything in the [server-sent events guide](crate::router::content::sse) applies here, such as keep-alive events for idle streams and resuming with `Last-Event-ID`. Each event type has `id` and `retry` methods for this.
+For live updates, return an [`Sse`] stream and convert each patch into an [`Event`] with `Into`. See the [server-sent events guide](crate::router::content::sse) for keep-alives and handling reconnections.
 
 ```rust
 use futures_core::Stream;
@@ -141,11 +128,11 @@ async fn progress() -> Result<Sse<impl Stream<Item = Result<Event>> + use<>>> {
 }
 ```
 
-On the page, `data-init="@get('/progress')"` opens the stream when the element loads, and Datastar applies each event as it arrives.
+On the page, `data-on:load="@get('/progress')"` subscribes to the stream and applies each event as it arrives.
 
 # Executing scripts
 
-[`ExecuteScript`] runs JavaScript in the browser. It sends a [`PatchElements`] event that appends a `<script>` element to the `body`. By default the element removes itself after it runs.
+[`ExecuteScript`] appends a `<script>` element to the page. By default, the element removes itself after running.
 
 ```rust
 use topcoat::datastar::ExecuteScript;
@@ -155,7 +142,7 @@ let script = ExecuteScript::new("console.log('saved')");
 
 # Plain responses
 
-Simple updates do not need an event stream. Datastar also patches a plain `text/html` response into the page, merges a plain `application/json` response into the signals, and runs a plain `text/javascript` response as a script. A few types implementing [`IntoResponseParts`] set the response headers that control how Datastar applies these responses. Put one before the body in a handler's response tuple:
+Datastar also accepts ordinary responses. It patches `text/html` into the page and merges `application/json` into the signals. Response types that implement [`IntoResponseParts`] set headers to control these updates. Place them before the body in a response tuple:
 
 ```rust
 use topcoat::{
@@ -177,17 +164,9 @@ async fn save(cx: &Cx) -> Result<(DatastarSelector, DatastarMode, ViewHandle)> {
 }
 ```
 
-The available types:
-
-- [`DatastarSelector`]: the elements that an HTML response patches, as a CSS selector.
-- [`DatastarMode`]: how an HTML response is patched in.
-- [`DatastarUseViewTransition`]: whether an HTML response is patched in using the View Transition API.
-- [`DatastarOnlyIfMissing`]: whether a JSON response only patches signals that do not exist yet.
-- [`DatastarScriptAttributes`]: the attributes of the script element for a JavaScript response.
-
 # Header constants
 
-The raw `datastar-*` header names are available as `HeaderName` constants in [`topcoat::datastar::header`](crate::datastar::header). Use them when you want to read or write a header yourself.
+The raw `datastar-*` header names are available as `HeaderName` constants in [`topcoat::datastar::header`](crate::datastar::header), for when you want to read or write a header directly.
 
 [`Sse`]: crate::router::content::sse::Sse
 [`Event`]: crate::router::content::sse::Event

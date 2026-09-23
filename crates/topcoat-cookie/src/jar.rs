@@ -9,16 +9,16 @@ use topcoat_core::context::{Cx, request_context};
 
 use crate::Cookies;
 
-/// The root cookie jar of a request.
+/// The root cookie jar for a request.
 ///
-/// Get it with [`cookies`](crate::cookies) and use it through the [`Cookies`]
-/// trait, which `&CookieJar` implements. It holds the cookies the request
-/// carried and the changes made during the request. The changes are sent as
-/// `Set-Cookie` response headers when the handler returns. All adapters built
-/// on top of it read from and write to this jar.
+/// Access it with [`cookies`](crate::cookies). Calls in the same request share
+/// the jar and see its pending changes.
 ///
-/// After the response headers are written, reads keep working, but adding or
-/// removing a cookie panics, because the change could never reach the client.
+/// Changes made through the jar or its adapters become `Set-Cookie` response
+/// headers when the handler returns.
+///
+/// Once the headers are written, reads still work but adding or removing a
+/// cookie panics.
 #[derive(Debug)]
 pub struct CookieJar {
     jar: Mutex<RawCookieJar>,
@@ -26,8 +26,11 @@ pub struct CookieJar {
 }
 
 impl CookieJar {
-    /// Builds a jar from the request's `Cookie` headers. The parsed cookies are
-    /// originals, so they are not sent back in the response.
+    /// Builds a jar from the request's `Cookie` header(s), seeding each parsed
+    /// cookie as an original (so it does not count towards the response delta).
+    ///
+    /// Reads the request headers from the [`Parts`] registered in request
+    /// context by the router.
     pub(crate) fn from_request(cx: &Cx) -> Self {
         let mut jar = RawCookieJar::new();
         let parts = request_context::<Parts>(cx);

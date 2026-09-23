@@ -8,63 +8,52 @@ use super::{
 };
 use crate::{DEFAULT_REGISTRY, Registry, content_hash};
 
-/// Options for [`init`].
+/// Options for initializing component installation in a package.
 pub struct InitOptions {
-    /// The directory components are installed into, relative to the package
-    /// root. Defaults to `src/components`.
+    /// Base directory for component install output (default `src/components`).
     pub components_dir: Option<PathBuf>,
-    /// The name of the theme to install. When `None` and the built-in registry
-    /// offers only one theme, that theme is installed. When it offers several,
-    /// the [`ChooseTheme`] callback picks one. A theme is always installed.
+    /// The theme to install. If omitted, use the sole available theme or ask the caller
+    /// to choose. A theme is required.
     pub theme: Option<String>,
 }
 
 /// The theme installed by [`init`].
 pub struct InstalledThemeInfo {
-    /// The name of the theme, such as `neutral`.
+    /// The theme's name, e.g. `neutral`.
     pub name: String,
-    /// The name of the registry it came from.
+    /// The registry crate it came from.
     pub registry: String,
-    /// The path of the written stylesheet, relative to the package root.
+    /// The package-relative path of the written stylesheet.
     pub file: PathBuf,
 }
 
 /// The result of [`init`].
 pub struct Initialized {
-    /// The path of the created `components.toml`, relative to the package
-    /// root.
+    /// The package-relative path of the created install-state file.
     pub state_file: PathBuf,
-    /// The directory components are installed into, relative to the package
-    /// root.
+    /// The base directory recorded for component install output.
     pub components_dir: PathBuf,
     /// The theme that was installed.
     pub theme: InstalledThemeInfo,
 }
 
-/// Sets up a package for `topcoat ui`: implements `topcoat ui init`.
+/// Creates a package's install state and installs a theme.
 ///
-/// This creates `components.toml` at the package root, which [`add`](super::add()),
-/// [`list`](super::list()), and [`remove`](super::remove()) require. It records
-/// the directory components are installed into.
-///
-/// It also installs a theme from the built-in registry: the theme's CSS is
-/// written to `styles.css` at the package root, to be used as the Tailwind
-/// input, and the theme is recorded in `components.toml`. The theme is the one
-/// named in [`InitOptions::theme`], or the only one on offer, or the one that
-/// `choose` picks.
-///
-/// Nothing is written if the theme cannot be resolved.
+/// Choose the component directory and theme through `InitOptions`. If no theme is named
+/// and several are available, `choose` selects one. The theme CSS becomes the package's
+/// Tailwind input. An initialized package cannot be initialized again.
 ///
 /// # Errors
 ///
-/// Returns an error if the package already has a `components.toml`, if the
-/// built-in registry cannot be loaded or has no themes, if the named theme
-/// does not exist, if `choose` returns an error, or if a file cannot be
-/// written.
+/// Returns an error if the package is already initialized, the default
+/// registry cannot be loaded or offers no themes, a named theme is unknown,
+/// a theme selection prompt is declined, or writing the stylesheet or install
+/// state fails.
 ///
 /// # Panics
 ///
-/// Panics if `choose` returns a name that was not offered to it.
+/// Panics if `choose` returns a name that was not among the ones it was
+/// offered.
 #[track_caller]
 pub fn init(
     package: &Package,
@@ -123,11 +112,8 @@ struct ThemePlan {
     contents: String,
 }
 
-/// Resolves the package's theme without writing anything. A theme is required,
-/// so this either returns a plan or fails: the default registry must load and
-/// offer at least one theme, and a named theme must exist. When no theme was
-/// named, the only offered theme is taken, or `choose` picks one when the
-/// registry offers several.
+/// Reads the selected theme and plans its destination without writing files. Uses the
+/// sole theme if none is named, or calls `choose` when several are available.
 #[track_caller]
 fn plan_theme(
     package: &Package,

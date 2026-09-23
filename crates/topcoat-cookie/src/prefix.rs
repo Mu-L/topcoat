@@ -2,11 +2,10 @@ use cookie::Cookie;
 
 use crate::Cookies;
 
-/// A cookie name prefix from [RFC 6265bis].
+/// A [RFC 6265bis] cookie name prefix.
 ///
-/// A browser only accepts a cookie whose name starts with a prefix if the
-/// cookie has the attributes that prefix requires. Apply a prefix with
-/// [`Cookies::override_prefix_host`] or one of the related combinators.
+/// A prefix asks the browser to enforce extra constraints on a cookie based on
+/// its name. For example, apply `__Host-` with [`Cookies::override_prefix_host`].
 ///
 /// [RFC 6265bis]: https://datatracker.ietf.org/doc/html/draft-ietf-httpbis-rfc6265bis#name-cookie-name-prefixes
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -19,8 +18,7 @@ pub enum Prefix {
 }
 
 impl Prefix {
-    /// Returns the prefix as it appears at the start of a cookie name, such as
-    /// `"__Host-"`.
+    /// The literal prefix string prepended to cookie names.
     #[must_use]
     pub const fn as_str(self) -> &'static str {
         match self {
@@ -47,10 +45,9 @@ impl Prefix {
 
     /// Applies the attributes the prefix requires.
     ///
-    /// With [`Conform::Override`] the required attributes are forced (RFC
-    /// compliant). With [`Conform::Default`] they are only filled in when the
-    /// cookie does not already set them, leaving any explicit caller value
-    /// untouched.
+    /// [`Conform::Override`] replaces attributes to meet the prefix's rules.
+    /// [`Conform::Default`] fills only unset attributes and preserves explicit
+    /// values, even when they conflict with those rules.
     fn conform(self, cookie: &mut Cookie<'static>, mode: Conform) {
         let force = matches!(mode, Conform::Override);
 
@@ -81,13 +78,12 @@ pub(crate) enum Conform {
     Override,
 }
 
-/// A [`Cookies`] adapter that adds a name [`Prefix`] to cookies.
+/// A [`Cookies`] adapter that scopes cookies to a name [`Prefix`].
 ///
-/// On write, it prepends the prefix to the cookie name and sets the attributes
-/// the prefix requires. On read, it looks up the prefixed name and returns the
-/// cookie under its bare name, so code keeps using the bare name throughout.
-///
-/// Created by [`Cookies::override_prefix_host`] and the related combinators.
+/// On write it prepends the prefix and applies the prefix's required
+/// attributes; on read it looks the cookie up under its prefixed name and
+/// strips the prefix from the result. Created by
+/// [`Cookies::override_prefix_host`] and the related combinators.
 #[derive(Debug, Clone, Copy)]
 pub struct Prefixed<J> {
     inner: J,

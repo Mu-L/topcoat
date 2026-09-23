@@ -19,20 +19,18 @@ use crate::{
     response::{IntoResponse, Response},
 };
 
-/// A server-sent events response that streams [`Event`]s to the client over a
-/// long-lived connection.
+/// An HTTP response that streams server-sent [`Event`]s to the client.
 ///
-/// Wrap a [`Stream`] of events to reply with `Content-Type: text/event-stream`.
-/// Each event is sent as soon as the stream yields it. The connection stays
-/// open until the stream ends, the stream yields an `Err`, or the client
-/// disconnects. A disconnect drops the stream, so put cleanup code in the
-/// stream's `Drop`. The router does not compress event streams, so events are
-/// never held back in a compression buffer.
+/// Wrap a [`Stream`] of events to send each event as it becomes ready with
+/// `Content-Type: text/event-stream`. The response ends when the stream
+/// finishes, yields an error, or the client disconnects. Put cleanup in the
+/// stream's `Drop` implementation so it also runs on disconnect. The router
+/// leaves event streams uncompressed to avoid buffering delays.
 ///
-/// A browser `EventSource` reconnects on its own when the connection is lost.
-/// Set [`Event::retry`] to change how long it waits before reconnecting. Set
-/// [`Event::id`] and read [`last_event_id`](crate::content::sse::last_event_id)
-/// to resume a stream where the client left off.
+/// A browser `EventSource` reconnects automatically. Use [`Event::retry`] to
+/// set the delay. Give events an [`Event::id`] and read
+/// [`last_event_id`](crate::content::sse::last_event_id) on reconnect to resume
+/// from the client's last event.
 ///
 /// # Examples
 ///
@@ -56,8 +54,8 @@ use crate::{
 /// ```
 ///
 /// The `use<>` bound keeps the stream from borrowing the request context,
-/// because a route's response must not borrow it. A stream that needs the
-/// context can clone the [`Cx`] and move the clone in:
+/// which a route's response must not do. A stream that needs the context
+/// clones the [`Cx`] and moves the owned handle in:
 ///
 /// ```rust
 /// use futures_core::Stream;
@@ -99,10 +97,8 @@ impl<S> Sse<S> {
         }
     }
 
-    /// Sends keep-alive events while the stream is idle, so proxies and
-    /// clients do not drop a quiet connection.
-    ///
-    /// Without this call, no keep-alive events are sent.
+    /// Sends events while the stream is idle to help avoid connection timeouts.
+    /// Disabled by default.
     pub fn keep_alive(mut self, keep_alive: KeepAlive) -> Self {
         self.keep_alive = Some(keep_alive);
         self

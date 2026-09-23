@@ -1,17 +1,12 @@
-//! Hoisted parts: markup a body pushes while it runs, rendered ahead of the
-//! next content the enclosing view resolves.
+//! Hoisted parts render before the enclosing view's next content.
 //!
-//! Some markup belongs at the start of a body's content rather than where
-//! the body produced it, such as a marker declaring state that must come
-//! before everything that reads it. [`hoist`] takes such a part while a body
-//! runs, and the [`HoistView`] around the body prepends everything hoisted to
-//! the next content it resolves: its first content, or the replacement of a
-//! later swap.
+//! Call [`hoist`] while rendering to collect a part. The enclosing
+//! [`HoistView`] places collected parts before its initial content or
+//! next replacement, in the order they were collected.
 //!
-//! The collecting view is installed in a thread local for exactly the
-//! duration of each poll. Views that interleave on one task therefore never
-//! collect each other's parts, and a part goes to the innermost view that is
-//! collecting when it is hoisted.
+//! Each part belongs to the innermost active collection. Collections are
+//! active only during their view's polls, so interleaved views do not
+//! collect each other's parts.
 
 use std::{
     cell::Cell,
@@ -31,16 +26,15 @@ use crate::{PartsWriter, View, ViewBuffer, ViewBufferScope, ViewFirst, ViewHandl
 /// A hoisted part, pushed through the writer of the content it lands in.
 type HoistedPart = Box<dyn FnOnce(&mut PartsWriter<'_>) + Send>;
 
-/// The key of a part hoisted with [`hoist_once`].
+/// The key of a part hoisted at most once per content.
 ///
-/// A key is a 128-bit hash of any hashable value. To keep the keys of
-/// different kinds of parts apart, hash a value that names the kind next to
-/// the id, such as a tag string or a type id.
+/// Include a type or tag in the key to distinguish different kinds of part
+/// that happen to share an id.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct HoistKey(u128);
 
 impl HoistKey {
-    /// Creates a key by hashing `key`.
+    /// Creates the key of the part identified by `key`.
     pub fn new(key: impl Hash) -> Self {
         let mut hasher = SipHasher13::new();
         key.hash(&mut hasher);
@@ -72,17 +66,14 @@ thread_local! {
 
 /// Hoists a part into the content of the enclosing view.
 ///
-/// `build` pushes the part through a writer in a text node position, for
-/// example a comment with [`push_comment`](PartsWriter::push_comment) or
-/// text with [`push_str`](PartsWriter::push_str). The part renders ahead of
-/// the next content the enclosing [`HoistView`] resolves. Several parts
-/// render in the order they were hoisted.
+/// `build` receives a writer for node content. Use its methods to select
+/// the appropriate HTML context. The part renders before the enclosing
+/// [`HoistView`]'s next content, in the order parts were hoisted.
 ///
 /// # Panics
 ///
-/// Panics if no view is collecting hoisted parts. This is the case outside a
-/// page, layout, component, or shard body, and inside work those bodies
-/// spawn onto another task.
+/// Panics if no view is collecting hoisted parts. Spawned tasks do not
+/// inherit the collection.
 #[track_caller]
 pub fn hoist(build: impl FnOnce(&mut PartsWriter<'_>) + Send + 'static) {
     with_collecting(|hoisted| hoisted.parts.push(Box::new(build)));
@@ -91,11 +82,9 @@ pub fn hoist(build: impl FnOnce(&mut PartsWriter<'_>) + Send + 'static) {
 /// Hoists a part into the content of the enclosing view unless a part with
 /// the same key was already hoisted into that content.
 ///
-/// Use this for a part that only needs to appear once, such as a marker that
-/// the content depends on some state. However many times the body reaches
-/// it, the content renders it once. The replacement of a later swap starts
-/// fresh, so the same key hoists again into it. `build` only runs when the
-/// part is hoisted. Otherwise the rules of [`hoist`] apply.
+/// Use this when repeated parts have the same meaning. Each replacement
+/// starts a fresh collection, so the same key may appear in a later update.
+/// `build` runs only for a part that is kept. Otherwise, [`hoist`]'s rules apply.
 ///
 /// # Panics
 ///
@@ -156,14 +145,12 @@ impl Drop for HoistGuard<'_> {
 }
 
 pin_project! {
-    /// A view that collects the parts hoisted while it polls and prepends
-    /// them to the content it resolves.
+    /// Collects the parts hoisted while a view polls and prepends them to
+    /// the content it resolves.
     ///
-    /// The wrapped view may call [`hoist`] at any point. Parts hoisted
-    /// before the first content resolves render ahead of that content.
-    /// Parts hoisted later render ahead of the next swap's replacement. A
-    /// nested `HoistView` collects the parts hoisted inside it, and the
-    /// outer one collects the rest.
+    /// Calls to [`hoist`] during a poll add parts to this view's collection.
+    /// They render before the next initial content or replacement.
+    /// A nested `HoistView` collects its own parts while it is being polled.
     pub struct HoistView<V> {
         #[pin]
         view: V,

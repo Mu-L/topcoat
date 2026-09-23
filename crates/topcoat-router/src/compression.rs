@@ -9,25 +9,23 @@ use crate::{Body, response::Response};
 /// Configures the compression a [`Router`](crate::Router) applies to
 /// responses.
 ///
-/// The router compresses each response body after every layer has run. It
-/// picks the algorithm from the request's `Accept-Encoding` header.
-/// Compression is on by default. Pass a configuration to
+/// The router compresses each response body with the algorithm negotiated
+/// from the request's `Accept-Encoding` header, after every layer has run.
+/// Compression is enabled by default; pass a configuration to
 /// [`RouterBuilder::compression`](crate::RouterBuilder::compression) to tune
 /// or disable it.
 ///
-/// A response is sent unchanged when the client accepts none of the enabled
-/// algorithms, or when compressing it would be wasteful or wrong. This is the
-/// case when the response already has a `Content-Encoding` or a
-/// `Content-Range` header, when its content type is an image (except SVG), a
-/// gRPC message, or an event stream, or when its body is known to be smaller
-/// than [`min_size`](Self::min_size).
+/// Responses remain unchanged when the client accepts no enabled algorithm,
+/// the body is below [`min_size`](Self::min_size), or its headers indicate
+/// that it should not be compressed. This includes already encoded responses,
+/// range responses, and content types unsuitable for compression.
 ///
 /// # Examples
 ///
 /// ```rust
 /// use topcoat::router::{Compression, CompressionLevel, Router};
 ///
-/// // Disable compression, for example when a reverse proxy compresses instead.
+/// // Disable compression, e.g. when a reverse proxy compresses instead.
 /// let router = Router::builder().compression(Compression::off()).build();
 ///
 /// // Trade compression ratio for speed, with gzip only.
@@ -52,11 +50,9 @@ pub struct Compression {
 }
 
 impl Compression {
-    /// Creates the default configuration.
-    ///
-    /// It enables gzip and brotli at the
-    /// [`Balanced`](CompressionLevel::Balanced) level and skips bodies smaller
-    /// than 32 bytes.
+    /// Creates the default configuration: gzip and brotli enabled at the
+    /// [`Balanced`](CompressionLevel::Balanced) level, skipping bodies
+    /// smaller than 32 bytes.
     #[must_use]
     pub fn new() -> Self {
         /// Below this size the compressed framing tends to outweigh the
@@ -74,8 +70,8 @@ impl Compression {
     /// Creates a configuration with every algorithm disabled, so responses
     /// are never compressed.
     ///
-    /// Use this when something in front of the application already
-    /// compresses responses, like a reverse proxy or CDN.
+    /// Use this when something in front of the application compresses
+    /// already, like a reverse proxy or CDN.
     #[must_use]
     pub fn off() -> Self {
         Self {
@@ -108,9 +104,9 @@ impl Compression {
 
     /// Sets the body size in bytes below which responses are not compressed.
     ///
-    /// The limit only applies to bodies whose size is known up front, from a
-    /// `Content-Length` header or an exact size hint. A streaming body of
-    /// unknown size is always compressed.
+    /// The limit applies to bodies whose size is known up front (via
+    /// `Content-Length` or an exact size hint); a streaming body of unknown
+    /// size is always compressed.
     #[must_use]
     pub fn min_size(mut self, bytes: u64) -> Self {
         self.min_size = bytes;
@@ -169,34 +165,29 @@ impl Default for Compression {
     }
 }
 
-/// The quality a [`Compression`] configuration encodes with.
-///
-/// A higher quality produces smaller output but uses more CPU time.
+/// The quality a [`Compression`] configuration encodes with, trading
+/// compression ratio against CPU time.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum CompressionLevel {
     /// The fastest quality, usually producing the biggest output.
     Fastest,
-    /// A fast quality suited to compressing responses on the fly.
+    /// A quality suited to compressing responses as they are served.
     ///
-    /// This is not the default quality of each algorithm. The brotli default
-    /// is its highest quality, which is far too slow to run on every response.
+    /// Balances output size against the CPU time needed for each response.
     #[default]
     Balanced,
-    /// The best quality, usually producing the smallest output.
-    ///
-    /// With brotli this is expensive. Prefer it for payloads that are
-    /// compressed once and then cached.
+    /// The best quality, usually producing the smallest output. With brotli
+    /// this is expensive; prefer it for payloads compressed once and cached.
     Best,
-    /// A numeric quality, clamped to the maximum of each algorithm.
+    /// A numeric quality interpreted by each algorithm, clamped to the
+    /// algorithm's maximum.
     Precise(i32),
 }
 
 impl CompressionLevel {
     /// Maps the level onto the middleware's equivalent.
     fn into_tower(self) -> tower_http::CompressionLevel {
-        /// The quality [`CompressionLevel::Balanced`] encodes with: level 4
-        /// for both gzip (of 0-9) and brotli (of 0-11) compresses at
-        /// rendering speed while brotli still beats gzip's best ratio.
+        /// The encoding quality used for [`CompressionLevel::Balanced`].
         const BALANCED_QUALITY: i32 = 4;
 
         match self {

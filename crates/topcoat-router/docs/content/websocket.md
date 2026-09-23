@@ -1,10 +1,10 @@
-WebSocket support for Topcoat routes.
+WebSocket connections for Topcoat routes.
 
-A [WebSocket](https://developer.mozilla.org/en-US/docs/Web/API/WebSockets_API) connection starts as a normal `GET` request that asks the server to switch protocols. This module needs the `websocket` feature. It handles that handshake and the messages that follow. [`WebSocketUpgrade`] checks the request and completes the upgrade, and the resulting [`WebSocket`] exchanges [`Message`]s with the client for as long as the connection is open.
+A WebSocket lets a client and server exchange messages over a persistent connection. Enable the `websocket` feature to accept upgrade requests with [`WebSocketUpgrade`] and exchange messages through [`WebSocket`].
 
 # Upgrading a request
 
-A route becomes a WebSocket endpoint by taking a [`WebSocketUpgrade`] parameter and returning the response built by [`on_upgrade`](WebSocketUpgrade::on_upgrade). The callback passed to `on_upgrade` receives the [`WebSocket`] once the client has switched protocols. It runs on its own task, and the handler returns the handshake response right away.
+Accept a [`WebSocketUpgrade`] parameter and return the response from [`on_upgrade`](WebSocketUpgrade::on_upgrade). Its callback receives the upgraded [`WebSocket`] and runs in a separate task. The handler returns the handshake response without waiting for that task to finish.
 
 ```rust
 use topcoat::{
@@ -30,11 +30,11 @@ async fn echo(upgrade: WebSocketUpgrade) -> Result<Response> {
 }
 ```
 
-A request that is not a valid WebSocket handshake is rejected before the callback runs. A method other than `GET` gets `405 Method Not Allowed`, and missing or malformed handshake headers get `400 Bad Request`. The extractor runs inside the handler like any other, so you can call request-scoped functions, such as a session check or `cookies(cx)`, as usual. To reject the request, return an error before calling `on_upgrade`.
+The extractor rejects non-`GET` requests with `405 Method Not Allowed` and invalid handshake headers with `400 Bad Request`. Perform application checks, such as authentication, before calling `on_upgrade`. Return an error to reject the connection.
 
 # Reading the request context
 
-The callback lives on after the handler that upgraded the connection, so it cannot borrow the `Cx` the handler was called with. Clone the `Cx` and move the clone into the callback instead. The clone reads the same app and request context.
+The callback outlives the handler that upgraded the connection, so it cannot borrow the `Cx` the handler was called with. Clone the `Cx` and move the owned handle into the callback instead; it reads the same app and request context.
 
 ```rust
 use topcoat::{
@@ -63,36 +63,16 @@ async fn greet(cx: &Cx, upgrade: WebSocketUpgrade) -> Result<Response> {
 
 # Messages
 
-A [`Message`] is either application data or a protocol message. Application data is `Text`, which is always valid UTF-8, or `Binary`. Protocol messages are `Ping`, `Pong`, and `Close`. Incoming pings are answered automatically. [`recv`](WebSocket::recv) returns [`None`] once the connection is closed, so a receive loop ends cleanly. [`send`](WebSocket::send) sends a message and flushes it. To end the connection, call [`close`](WebSocket::close) to perform the closing handshake. To include a [status code](close_code) and a reason, send a [`Message::Close`] with a [`CloseFrame`] instead.
+A [`Message`] is either application data (`Text`, guaranteed UTF-8, or `Binary`) or protocol bookkeeping (`Ping`, `Pong`, and `Close`). Incoming pings are answered automatically. [`recv`](WebSocket::recv) returns [`None`] once the connection has closed, so a receive loop terminates cleanly; [`send`](WebSocket::send) delivers a message and flushes it. To end the conversation, [`close`](WebSocket::close) performs the closing handshake, or send a [`Message::Close`] carrying a [`CloseFrame`] to attach a [status code](close_code) and reason.
 
-[`WebSocket`] also implements `Stream` and `Sink`. You can split it into two halves to read and write at the same time:
+[`WebSocket`] also implements `Stream` and `Sink`, so the connection can be split into halves that read and write concurrently:
 
-```rust
-use futures_util::{SinkExt, StreamExt};
-use topcoat::{
-    Result,
-    router::{
-        content::websocket::{Message, WebSocketUpgrade},
-        response::Response,
-        route,
-    },
-};
+```rust,ignore
+use futures_util::StreamExt;
 
-#[route(GET "/echo")]
-async fn echo(upgrade: WebSocketUpgrade) -> Result<Response> {
-    upgrade.on_upgrade(|socket| async move {
-        let (mut sender, mut receiver) = socket.split();
-        while let Some(Ok(message)) = receiver.next().await {
-            if matches!(message, Message::Text(_) | Message::Binary(_))
-                && sender.send(message).await.is_err()
-            {
-                break;
-            }
-        }
-    })
-}
+let (mut sender, mut receiver) = socket.split();
 ```
 
 # Subprotocols and limits
 
-[`protocols`](WebSocketUpgrade::protocols) declares the subprotocols the endpoint supports, in order of preference. The first one that the client also requested is selected, sent back in the handshake response, and returned by [`WebSocket::protocol`]. Other builder methods limit the connection. [`max_message_size`](WebSocketUpgrade::max_message_size) and [`max_frame_size`](WebSocketUpgrade::max_frame_size) protect against oversized input, and [`max_write_buffer_size`](WebSocketUpgrade::max_write_buffer_size) limits memory use when a client stops reading. See [`WebSocketUpgrade`] for the rest.
+Pass supported subprotocols to [`protocols`](WebSocketUpgrade::protocols) in preference order. Topcoat selects the first one also requested by the client. Read the result with [`WebSocket::protocol`]. Use the [`WebSocketUpgrade`] builder to set message, frame, and write buffer limits.

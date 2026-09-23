@@ -1,4 +1,4 @@
-Builds a [`FontFace`] for a single font file from the [Fontsource] catalog. The file is picked by its family, weight, style, and subset. The family comes first, as the name of its [`families`] constant. The other arguments are written as `name: value` in any order. `weight` and `style` are required. `subset`, `display`, and `host` are optional.
+Creates one [`FontFace`] from the [Fontsource] catalog. Write the family name first, followed by `name: value` arguments in any order. Include `weight` and `style` to select the face:
 
 ```rust
 # use topcoat::font::*;
@@ -12,21 +12,21 @@ fontsource_font_face!(
 # }
 ```
 
-Every value is checked at compile time against the copy of the catalog built into Topcoat.
+Every value is checked against the vendored catalog at compile time.
 
 # Arguments
 
 The **family** comes first, as the name of its [`families`] constant (e.g. `ROBOTO`).
 
-**`weight`** is a single number in `100..=900`. The family must ship that weight.
+**`weight`** is one of the family's available weights in `100..=900`.
 
-**`style`** is [`Normal`] or [`Italic`]. The family must ship that style.
+**`style`** is [`Normal`] or [`Italic`], and the family has to offer it.
 
-**`subset`** is the group of characters the face covers, such as [`Latin`] or [`Cyrillic`]. It also sets the face's `unicode-range`, so the browser only downloads the file when the page uses those characters. Leave it out to use the family's default subset.
+**`subset`** selects characters such as [`Latin`] or [`Cyrillic`] and determines the face's `unicode-range`. It defaults to the family's default subset.
 
-**`display`** is the face's [`FontDisplay`] strategy, which controls how text is shown while the font downloads. It defaults to `Swap`.
+**`display`** sets how text appears while the font loads. It accepts a [`FontDisplay`] value and defaults to `Swap`.
 
-**`host`** is where the browser loads the file from. It defaults to [`JsDelivr`], which loads the file from the [jsDelivr] CDN. Pass [`Asset`] to bundle the file as a Topcoat [`Asset`][asset-type] instead and serve it from your own origin with a content-hashed URL. This needs the `asset` feature.
+**`host`** selects where the font file is loaded from. It defaults to [`JsDelivr`]. Use [`Asset`] to bundle the file as a Topcoat [asset][asset-type] and serve it yourself. This requires the `asset` feature.
 
 ```rust
 # use topcoat::font::*;
@@ -45,7 +45,7 @@ fontsource_font_face!(
 
 # Whole families
 
-This macro builds one face at a time. To declare a font with several weights, styles, or subsets at once, use [`fontsource_font!`]. It builds one face for every combination and expands to a [`Font`].
+Use [`fontsource_font!`] to create a [`Font`] with several weights, styles, or subsets.
 
 [Fontsource]: https://fontsource.org/
 [jsDelivr]: https://www.jsdelivr.com/

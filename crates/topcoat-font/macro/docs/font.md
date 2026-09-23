@@ -1,12 +1,12 @@
 Declares a [`Font`] from a family name and its faces.
 
-The family name is a string literal or any expression that converts into a `String`. The macro expands to a [`Font`] that can be stored in a `const`. The faces are built the first time the font is used. With the `discover` feature, the font is also registered for discovery, so [`discover_fonts`] finds it. Without that feature, register the font yourself with [`RouterBuilder::font`].
+The result can be assigned to a constant. With the `discover` feature, [`discover_fonts`] finds the font automatically. Otherwise, register it with [`RouterBuilder::font`].
 
-The faces can be written in one of two forms.
+The faces can be given in one of two forms.
 
 # CSS-like form
 
-Follow the family name with one or more [`@font-face`] blocks, like in a CSS stylesheet. You write the family name once, and the macro adds it to every block. The body of each `@font-face { ... }` block is a [`font_face!`] body without the `font-family` descriptor.
+Follow the family name with one or more [`@font-face`] blocks. Each block uses [`font_face!`] syntax and inherits the family name:
 
 ```rust
 # use topcoat::font::{Font, font};
@@ -26,7 +26,7 @@ const INTER: Font = font! {
 
 # Expression form
 
-Instead of blocks, you can follow the family name with a single expression for the faces. It can be anything that converts into [`FontFaces`], such as a `Vec<FontFace>`. This is useful when you build the faces in code or share them between fonts:
+To build faces in Rust, pass an expression that converts into [`FontFaces`], such as a `Vec<FontFace>`:
 
 ```rust
 # use topcoat::font::{Font, FontFace, FontFormat, FontSource, font};
@@ -40,7 +40,7 @@ fn inter_faces() -> Vec<FontFace> {
 const INTER: Font = font!("Inter", inter_faces());
 ```
 
-In this form the macro does not add the family name to the faces, so each [`FontFace`] must already use the same family.
+In this form, each [`FontFace`] must already have the matching family name.
 
 [`@font-face`]: https://developer.mozilla.org/en-US/docs/Web/CSS/@font-face
 [`font_face!`]: macro.font_face.html

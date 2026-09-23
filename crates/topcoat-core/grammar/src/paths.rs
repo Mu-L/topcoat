@@ -1,28 +1,19 @@
 //! Paths to the framework crates, for naming their items in generated code.
 //!
-//! A macro like `view!` expands to code that refers to framework types, such
-//! as `topcoat::view::Component`. It cannot hardcode those paths, because the
-//! same macro is used from crates that reach the framework in different ways:
-//!
-//! - Application crates depend on the `topcoat` facade and name the type
-//!   `::topcoat::view::Component`.
-//! - Component libraries depend on the individual crates (`topcoat-view`, and so on) directly, and
-//!   name it `::topcoat_view::Component`. A crate that the facade re-exports cannot depend on the
-//!   facade without a dependency cycle.
-//!
-//! Each framework crate is therefore represented by a [`Crate`] constant that
-//! resolves to the right path for the crate being compiled: the standalone
-//! crate when that crate depends on it directly, and the facade otherwise.
+//! Generated code must use paths available to the calling crate. Each [`Crate`]
+//! constant resolves to a direct dependency when present, or through the
+//! `topcoat` facade otherwise. Dependency renames are respected.
 //!
 //! Interpolate a constant into `quote!` like any other path:
 //!
-//! ```
-//! use quote::quote;
-//! use topcoat_core_grammar::paths::topcoat_context;
+//! ```ignore
+//! use topcoat_core_grammar::paths::{topcoat_context, topcoat_view};
 //!
-//! let tokens = quote! {
-//!     fn handler(cx: &#topcoat_context::Cx) {}
-//! };
+//! quote! {
+//!     impl #topcoat_view::Component for #ident {
+//!         async fn render(self, cx: &#topcoat_context::Cx) -> #ret { ... }
+//!     }
+//! }
 //! ```
 
 use proc_macro_crate::{FoundCrate, crate_name};
@@ -31,10 +22,8 @@ use quote::ToTokens;
 
 /// A framework crate, or a module within one, that generated code can refer to.
 ///
-/// Interpolate a `Crate` into a `quote!` invocation to emit its path. The path
-/// goes through the standalone crate when the crate being compiled depends on
-/// it directly, and through the `topcoat` facade otherwise. See the
-/// [module docs](self) for why.
+/// Interpolate it into `quote!` to emit a path available at the call site.
+/// Direct dependencies take precedence over the facade.
 pub struct Crate {
     /// Path within the `topcoat` facade, e.g. `"view"` for `::topcoat::view`.
     /// Empty for the facade root, `::topcoat` itself.
@@ -56,8 +45,8 @@ impl Crate {
         }
     }
 
-    /// Returns the resolved path as a string, for places that need a string
-    /// literal instead of tokens, such as `#[serde(crate = "...")]`.
+    /// The resolved crate path as a string, for contexts that need a string
+    /// literal rather than tokens -- such as `#[serde(crate = "...")]`.
     #[must_use]
     pub fn path_string(&self) -> String {
         resolve(self)
@@ -77,12 +66,11 @@ impl ToTokens for Crate {
 /// The standalone crate is preferred whenever it is a direct dependency: a
 /// component library depends on the individual crates (`topcoat-view`, and so
 /// on) and names them directly. This holds even when the library *also* pulls
-/// the facade in as a dev-dependency for its tests. Checking the standalone
-/// crate first keeps the library's own code resolving to the crates its `lib`
-/// target actually links, which a facade-first check would get wrong
-/// (`crate_name` cannot tell a dev-dependency from a real one). Only a caller
-/// that depends on the facade alone, like an application crate, gets the
-/// facade path.
+/// the facade in as a dev-dependency for its tests -- keying off the standalone
+/// crate keeps the library's own code resolving to the crates its `lib` target
+/// actually links, which a facade-first check would get wrong (`crate_name`
+/// cannot tell a dev-dependency from a real one). Only a caller that depends on
+/// the facade alone -- an application crate -- falls through to the facade path.
 fn resolve(krate: &Crate) -> String {
     if let Some(base) = crate_base(krate.package) {
         return join(&base, krate.module);
@@ -117,8 +105,8 @@ fn join(base: &str, submodule: &str) -> String {
 /// dependency.
 ///
 /// The self-referential case names the crate `::topcoat_view` rather than
-/// `crate`, because `crate_name` reports `Itself` even inside a doctest, which
-/// is compiled as a *separate* crate that links the real one as an extern, so
+/// `crate`, because `crate_name` reports `Itself` even inside a doctest -- which
+/// is compiled as a *separate* crate that links the real one as an extern, where
 /// `crate` would point at the doctest binary. Each framework crate carries an
 /// `extern crate self as topcoat_...;` alias so that this same extern name also
 /// resolves within its own non-doctest builds. See the [module docs](self).
@@ -145,7 +133,7 @@ pub const topcoat_asset: Crate = Crate::new("asset", "topcoat-asset", "");
 #[allow(non_upper_case_globals)]
 pub const topcoat_context: Crate = Crate::new("context", "topcoat-core", "context");
 
-/// `::topcoat::core`, or `topcoat_core` standalone.
+/// Shared core types.
 #[allow(non_upper_case_globals)]
 pub const topcoat_core: Crate = Crate::new("core", "topcoat-core", "");
 

@@ -11,10 +11,8 @@ use crate::{Surrogate, Surrogated};
 
 /// The identity of a signal, shared by the server and the browser runtime.
 ///
-/// An id is derived from the context's identity and the location of the
-/// [`signal`] call, so the same call reached through the same chain of
-/// invocations produces the same id on every render. It serializes as a
-/// fixed-width hex string, since JSON cannot hold a 128-bit integer.
+/// The context's identity and the `signal` call's location determine the id.
+/// The same invocation therefore keeps its id across renders.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct SignalId(u128);
 
@@ -59,13 +57,11 @@ impl<'de> Deserialize<'de> for SignalId {
     }
 }
 
-/// The current values of signals that the browser sends with a re-run,
-/// keyed by signal id.
+/// Signal values sent by the client for a server render, keyed by signal id.
 ///
-/// A re-run that resumes state, such as a shard re-render, registers these
-/// on its request context. [`signal`] then starts from the value stored
-/// under its id instead of computing a new one. The browser chooses the
-/// values, so a value that does not fit the signal's type is ignored.
+/// Register this in the request context to restore signals from client
+/// state. [`signal`] uses the matching value if it fits the signal's type,
+/// or computes an initial value otherwise. All restored values are untrusted.
 #[derive(Debug, Default, Deserialize)]
 #[serde(transparent)]
 pub struct SignalValues(HashMap<SignalId, serde_json::Value>);
@@ -77,23 +73,18 @@ impl SignalValues {
     }
 }
 
-/// A piece of state that lives in the browser.
+/// Reactive state shared by browser expressions.
 ///
-/// Create a signal with [`signal`] during a server render, then read or
-/// write it in runtime expressions. There it is reactive: an expression runs
-/// again in the browser whenever a signal it read changes. A signal is cheap
-/// to clone, and every clone is the same signal. Any number of runtime
-/// expressions can capture it, a component can take it as a `&Signal<T>`
-/// prop, and a shard can take it as a `Signal<T>` parameter.
+/// Create a signal with [`signal`] during rendering. Runtime expressions
+/// can read and write it. When its value changes, browser expressions
+/// that read it run again. Cloning a signal is cheap and refers to the
+/// same state.
 ///
-/// A signal can also be read on the server, outside any runtime expression.
-/// [`get`](Self::get) and [`read`](Self::read) are tracked reads: they make
-/// the body's content depend on the signal, so that a change re-runs the
-/// page, or the innermost shard around the read, with the signal's current
-/// value. [`get_untracked`](Self::get_untracked) and
-/// [`read_untracked`](Self::read_untracked) read the value without that
-/// dependency. **Every value read on the server is untrusted user input**,
-/// chosen by the browser like a shard argument.
+/// On the server, [`get`](Self::get) and [`read`](Self::read) track the
+/// signal as a dependency. A change re-renders the enclosing shard, or the
+/// page if there is no shard. Use [`get_untracked`](Self::get_untracked) or
+/// [`read_untracked`](Self::read_untracked) to read without this dependency.
+/// **Validate values read on the server because the client can supply them.**
 #[derive(Debug)]
 pub struct Signal<T> {
     id: SignalId,
@@ -114,17 +105,15 @@ impl<T> Signal<T> {
         self.id
     }
 
-    /// Borrows the current value and tracks the signal as a dependency of
+    /// Borrows the current value, tracking the signal as a dependency of
     /// the body reading it.
     ///
-    /// When the signal changes, the browser runtime re-runs the page, or the
-    /// innermost shard around the read. Reading the same signal several
-    /// times in one body tracks it once.
+    /// A change re-renders the enclosing shard, or the page if there is no
+    /// shard. Repeated reads create only one dependency.
     ///
     /// # Panics
     ///
-    /// Panics when called outside a page, layout, component, or shard body,
-    /// like [`signal`].
+    /// Panics outside an active rendering scope or runtime expression.
     #[must_use]
     #[track_caller]
     pub fn read(&self) -> &T {
@@ -134,9 +123,8 @@ impl<T> Signal<T> {
 
     /// Borrows the current value without tracking the signal.
     ///
-    /// A change to the signal does not re-run the body that read it this
-    /// way. Unlike [`read`](Self::read), it can be called anywhere, not just
-    /// inside a body.
+    /// Outside runtime expressions, this creates no dependency and needs
+    /// no rendering scope.
     #[must_use]
     pub fn read_untracked(&self) -> &T {
         crate::expr::mark_signal_read();
@@ -195,16 +183,14 @@ impl<T> Signal<T>
 where
     T: Clone,
 {
-    /// Clones the current value and tracks the signal as a dependency of
+    /// Clones the current value, tracking the signal as a dependency of
     /// the body reading it.
     ///
-    /// This is [`read`](Self::read) for a value the body wants to own. The
-    /// same tracking rules apply.
+    /// Uses the same tracking rules as [`read`](Self::read).
     ///
     /// # Panics
     ///
-    /// Panics when called outside a page, layout, component, or shard body,
-    /// like [`signal`].
+    /// Panics outside an active rendering scope or runtime expression.
     #[must_use]
     #[track_caller]
     pub fn get(&self) -> T {
@@ -214,8 +200,7 @@ where
 
     /// Clones the current value without tracking the signal.
     ///
-    /// This is [`read_untracked`](Self::read_untracked) for a value the
-    /// body wants to own.
+    /// Uses the same tracking rules as [`read_untracked`](Self::read_untracked).
     #[must_use]
     pub fn get_untracked(&self) -> T {
         T::clone(self.read_untracked())
@@ -231,11 +216,10 @@ impl<T> Clone for Signal<T> {
     }
 }
 
-/// A value a signal can hold.
+/// A value that can be sent to the browser and restored from browser state.
 ///
-/// This is any type from the runtime's vocabulary that can be serialized
-/// into the page and read back from what the browser sends. It is
-/// implemented automatically, so there is nothing to implement by hand.
+/// Implemented automatically for runtime types whose surrogates support
+/// serialization and deserialization.
 pub trait SignalValue: Sized {
     /// The serializable surrogate of a borrowed value.
     type Surrogate<'a>: Serialize
@@ -275,18 +259,13 @@ where
 
 /// Creates a signal holding the value `init` returns.
 ///
-/// The value is computed once, during the server render, and becomes the
-/// signal's initial state in the browser. The returned signal is an
-/// ordinary value. Capture it in as many runtime expressions as needed, or
-/// pass it to components as `&Signal<T>`.
+/// The initial render calls `init` and sends its value to the browser.
+/// Capture the signal in runtime expressions or pass it to components.
+/// Clones refer to the same signal.
 ///
-/// **A signal's value on the server is untrusted user input.** A re-run,
-/// such as a shard re-render or a page re-run, carries the current values of
-/// the signals the browser holds. When one of them belongs to this signal,
-/// the signal starts from that value and `init` does not run, so state
-/// created inside a shard survives its re-renders. The browser chooses those
-/// values and can send anything that fits the signal's type, so validate a
-/// value read on the server before acting on it, like a shard argument.
+/// When a render resumes browser state, a matching value replaces `init`.
+/// This preserves signal state across renders. **Validate values read on
+/// the server** because the client can supply any value that fits the type.
 ///
 /// ```rust
 /// use topcoat::{Result, context::Cx, runtime::signal, view::*};
@@ -302,28 +281,21 @@ where
 /// }
 /// ```
 ///
-/// A signal belongs to the page, layout, component, or shard body that
-/// creates it, and is available to every runtime expression in that body's
-/// view, including the components it renders.
+/// A signal's identity comes from `cx` and the location of this call.
+/// Components receive their invocation's context automatically. Components
+/// inside a template loop need `#[key(...)]` on that loop to distinguish
+/// their signals.
 ///
-/// # Identity
-///
-/// A signal's identity comes from `cx` and the location of this call, and
-/// must be the same on every render. Components receive a context for their
-/// invocation automatically. Components inside a template loop need
-/// `#[key(...)]` on that loop to tell their signals apart.
-///
-/// A plain helper function that creates a signal and is called more than
-/// once needs a context derived with [`Cx::keyed`]. `cx.keyed(())` calls at
-/// different source locations already give different identities, but
+/// For ordinary helpers called more than once, pass a context derived with
+/// [`Cx::keyed`]. Separate `cx.keyed(())` calls distinguish source locations;
 /// repeated calls at one location need distinct keys. Template loops do not
 /// rebind context variables used in ordinary Rust expressions.
 ///
 /// # Panics
 ///
-/// Panics if `cx` belongs to a memoized call or carries an ambiguous
-/// identity, or if no view is collecting signal declarations. A spawned task
-/// must set up its own rendering scope before creating signals.
+/// Panics if `cx` belongs to a memoized call or carries an ambiguous identity,
+/// or if no view is collecting signal declarations. A spawned task must
+/// establish its own rendering scope before creating signals.
 #[track_caller]
 pub fn signal<T>(cx: &Cx, init: impl FnOnce() -> T) -> Signal<T>
 where

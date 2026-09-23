@@ -1,10 +1,10 @@
-Topcoat's runtime makes server-rendered pages interactive without a wasm bundle, a client build step, or a separate frontend. You write reactive state and expressions inline in [`view!`]. They are type-checked as ordinary Rust and compiled to JavaScript that ships with the page.
+Topcoat's runtime adds browser interactions to server-rendered pages. Write state and expressions in Rust alongside your markup. The runtime compiles the browser code to JavaScript and includes it with the page.
 
-The runtime is **highly experimental** and still limited. Expressions support only a small vocabulary of types and methods, and many patterns have no ergonomic answer yet. Expect both additions and breaking changes in future releases.
+The runtime is **highly experimental**. Expressions support a limited set of Rust types and operations, and the API may change.
 
 # Setup
 
-Interactive pages need the runtime's browser script. The `script` component renders its `<script>` tag. Include it in your document head:
+Interactive pages need the runtime's browser script. `script()` renders the script tag; include it in your document head:
 
 ```rust
 # use topcoat::{Result, view::*};
@@ -21,7 +21,7 @@ Ok(view! {
 # }
 ```
 
-The router needs two things as well. [`runtime()`](RouterBuilderRuntimeExt::runtime) mounts the routes the browser script calls on its own. The script itself is served as a Topcoat [asset](../asset/index.html), so the asset bundle must be loaded too:
+Call [`runtime()`](RouterBuilderRuntimeExt::runtime) to register the runtime's routes. Load the [asset bundle](../asset/index.html) to serve the browser script:
 
 ```rust,no_run
 use topcoat::{
@@ -39,11 +39,11 @@ pub fn router() -> Router {
 }
 ```
 
-`.runtime()` covers only the runtime's own routes. The endpoints behind your [procedures](#procedures) and [shards](#shards), covered later in this guide, come from annotated items that `.discover()` registers like pages and layouts. Rendering `script` on a router built without `.runtime()` panics.
+Register your [procedures](#procedures) and [shards](#shards) separately. The example uses `.discover()` to find them.
 
 # Runtime expressions
 
-A `$(...)` block is a **runtime expression** and can stand wherever a view node can:
+A `$(...)` block is a **runtime expression**. Use it in a view to render its value:
 
 ```rust
 # use topcoat::{Result, view::*};
@@ -55,15 +55,15 @@ Ok(view! {
 # }
 ```
 
-The expression is type-checked Rust, but it is compiled twice. The server evaluates it once for the initial HTML. An equivalent JavaScript translation ships with the page, where it can run again without any help from the server.
+The server evaluates the expression for the initial HTML. Expressions that need browser updates also compile to JavaScript and can run again without a server request.
 
-A runtime expression must behave the same in both languages, so only a subset of Rust is supported: a small vocabulary of types and methods. `$(...)` is shorthand for the [`expr!`] macro, whose documentation lists that vocabulary and explains how captured variables behave and how to embed hand-written JavaScript with `raw!`.
+Runtime expressions support a subset of Rust with matching behavior in both languages. See [`expr!`] for supported operations, captured values, and embedding JavaScript with `raw!`.
 
-The browser has no reason to run `1 + 2` a second time, since the answer is always `3`. Expressions become useful when they read state that changes: signals.
+The expression `1 + 2` is static. To make an expression update, have it read a signal.
 
 # Signals
 
-A **signal** is a piece of state that lives in the browser. Create one with [`signal`], passing the request context and a closure producing the initial value, and read it in a runtime expression with `.get()`:
+A **signal** holds state for the browser. Create one with [`signal`], passing the request context and a closure for its initial value. Read it in a runtime expression with `.get()`:
 
 ```rust
 # use topcoat::{Result, context::Cx, runtime::signal, view::*};
@@ -77,15 +77,15 @@ Ok(view! {
 # }
 ```
 
-The initial value is computed once during the server render and serialized into the page, where the browser picks it up as reactive state. **From then on the value is user input.** The browser holds it, so anything the server later reads back from the signal **must not be trusted**.
+The server computes the initial value and sends it to the browser. **Values sent back by the browser are user input and must be validated.**
 
-A signal belongs to the page, layout, component, or shard body that creates it. It is an ordinary value that is cheap to clone. Any number of runtime expressions in that body's view can capture it, and the body can pass it down to the components it renders as `&Signal<T>`.
+A signal is cheap to clone. Runtime expressions can share it, and components can accept it as a `&Signal<T>` parameter.
 
-In the browser, a runtime expression re-runs whenever a signal it read changes. The text above updates the moment `count` does, with no server round-trip. Inside an expression, `.get()` reads the signal's current value and `.set(...)` replaces it. Nothing changes `count` yet, though. That is what event handlers are for.
+In the browser, an expression runs again whenever a signal it reads changes. `.get()` reads the current value and `.set(...)` replaces it. Use an event handler to change `count` when the user clicks a button.
 
 # Event handlers
 
-An attribute starting with `@` attaches an event handler: `@click`, `@input`, or any other DOM event name. Its value is a runtime expression that evaluates to a closure. The closure runs in the browser each time the event fires, and it is where signals change:
+An attribute starting with `@` attaches a DOM event handler, such as `@click`. Its value is a runtime expression returning a closure. The browser calls that closure when the event fires:
 
 ```rust
 # use topcoat::{Result, context::Cx, runtime::signal, view::*};
@@ -100,9 +100,9 @@ Ok(view! {
 # }
 ```
 
-Clicking the button runs the closure, the closure updates the signal, and the `$(count.get())` text re-renders. All of this happens in the browser.
+Clicking the button runs the closure, the closure updates the signal, and the `$(count.get())` text re-renders. The entire loop happens in the browser.
 
-The closure receives an [`Event`] that mirrors the DOM event, with fields like `e.target.value`, `e.key`, and `e.client_x`, and methods like `e.prevent_default()`. A typical input handler copies the element's value into a signal:
+The closure receives an [`Event`] with access to the DOM event's data and methods. For example, an input handler can copy the element's value into a signal:
 
 ```rust
 # use topcoat::{Result, context::Cx, runtime::{Event, signal}, view::*};
@@ -116,13 +116,13 @@ Ok(view! {
 # }
 ```
 
-When a handler needs something the expression vocabulary cannot express, the value can instead be a string literal of JavaScript. The string must evaluate to the handler function, for example `@click="() => alert('hi')"`.
+For operations outside the expression vocabulary, use a JavaScript string literal, such as `@click="alert('hi')"`.
 
-`set` is the general write. A few updates that depend on the current value have a shorter form: `toggle` on a `bool` signal, `increment` and `decrement` on a numeric signal, and `push_str` on a `String` signal. The counter's handler can be written as `$(|_e| count.increment())`.
+Signals also have methods for common updates. For example, `$(|_e| count.increment())` adds one to a numeric signal.
 
 # Bind attributes
 
-An attribute starting with `:` is a **bind attribute**. Its value is a runtime expression, and the attribute is kept in sync with it. The server renders the initial value like a normal attribute, and the browser applies it again whenever a signal the expression reads changes:
+An attribute starting with `:` is a **bind attribute**. The server renders its expression's initial value. The browser updates the attribute whenever a signal read by the expression changes:
 
 ```rust
 # use topcoat::{Result, context::Cx, runtime::signal, view::*};
@@ -137,7 +137,7 @@ Ok(view! {
 # }
 ```
 
-A bind attribute and an event handler together sync an element and a signal in both directions. `:value` keeps the input showing the signal, and `@input` writes every keystroke back into it:
+Combine `:value` and `@input` to keep an input and signal in sync. The binding displays the signal's value, and the handler writes user edits back to it:
 
 ```rust
 # use topcoat::{Result, context::Cx, runtime::{Event, signal}, view::*};
@@ -158,7 +158,7 @@ Ok(view! {
 
 # Procedures
 
-Runtime expressions run in the browser, so they cannot query the database or use Rust beyond the shared vocabulary. When an event handler needs the server, it calls a **procedure**: an async server function that a runtime expression calls like any other async function:
+A **procedure** is an async server function called from a runtime expression. Use one when an event handler needs a server resource, such as a database:
 
 ```rust
 # use topcoat::{Result, context::Cx, runtime::{procedure, signal}, view::*};
@@ -182,11 +182,11 @@ Ok(view! {
 # }
 ```
 
-The call is an HTTP request. The arguments travel to the server, the function runs there, and the `.await` resolves to its result. This also means every procedure is an API endpoint of your server. Anyone can call it with any arguments, so its inputs **must not be trusted**. See [`#[procedure]`][procedure] for argument and return types, the `cx` parameter, error handling, and registration.
+The browser sends an HTTP request with the arguments and waits for the result. **Validate arguments and authorize access inside the procedure**, since callers can send their own requests. See [`#[procedure]`][procedure] for usage details.
 
 # Shards
 
-When the markup itself needs the server, such as search results that update as the user types, use a **shard**: a component that re-renders on the server whenever one of its arguments changes. Arguments accept fixed values or runtime expressions. The browser sends their current values to the server and morphs the returned HTML into the page:
+A **shard** is a component that re-renders on the server when its inputs change. Use one to update markup from server data, such as search results. Arguments accept fixed values or runtime expressions:
 
 ```rust
 # use topcoat::{Result, context::Cx, view::*, runtime::{shard, signal, Event}};
@@ -213,11 +213,11 @@ Ok(view! {
 # }
 ```
 
-A shard body is ordinary server code, like any component. Its re-renders are served by an API endpoint of your server, so a shard's arguments can be forged just like a procedure's and **must not be trusted**. See [`#[shard]`][shard] for how re-renders behave, shard state, guards, and registration.
+A shard has its own HTTP endpoint. **Validate its arguments and authorize access inside the shard**. Its page and layout guards do not run for requests to that endpoint. See [`#[shard]`][shard] for usage details.
 
 # Reading signals on the server
 
-A signal can also be read in plain Rust, outside any runtime expression. `.get()` clones the current value and `.read()` borrows it. Both are **tracked reads**: they make the page depend on the signal. When the signal changes in the browser, the page runs again on the server with the signal's current value, and the result replaces the page's content:
+Read a signal in server Rust with `.get()` to clone its value or `.read()` to borrow it. These are **tracked reads**. A change in the browser causes the page to re-render on the server with the new value:
 
 ```rust
 # use topcoat::{Result, context::Cx, router::page, runtime::{Event, signal}, view::*};
@@ -237,13 +237,13 @@ async fn search(cx: &Cx) -> Result<impl View> {
 }
 ```
 
-The input keeps working as a browser-only binding, and the product list follows it through the server. On the re-run, [`signal`] starts from the value the browser sent instead of computing a new one, so the page picks up where the browser left off. Reads inside a `$(...)` expression never make the page depend on a signal. They are the browser-side path and stay in the browser.
+The input updates in the browser while the server refreshes the product list. On re-render, [`signal`] restores the value sent by the browser. Reads inside `$(...)` update browser expressions and do not trigger a server render.
 
-**Every value read on the server is user input and must not be trusted.** The browser holds the signal and can send anything that fits its type, so validate the value before acting on it, exactly like a shard argument.
+**Every value read on the server is user input and must not be trusted.** The client holds the signal and can send anything that fits its type, so validate the value before acting on it, exactly like a shard argument.
 
-The result is morphed into the page rather than swapped in. Elements that still exist are updated in place, so focus, scroll position, and what the user is typing survive a re-run, and every signal keeps its value. Give each item of a list that can reorder an `id`, so the morph follows the item to its new position instead of rewriting the items in between.
+The browser updates existing elements in place to preserve focus, scroll position, and input state. Signals keep their values. Give items in a reorderable list stable IDs so each element follows its item.
 
-To avoid re-running the whole page, use a shard. A tracked read inside a shard re-renders only that shard. Here the shard creates the signal, reads it, and renders the handlers that change it:
+To avoid re-running the whole page, use a shard: a signal tracked inside a shard re-renders only that shard, not the entire page. The shard creates the signal, reads it, and hands the browser the handlers that change it:
 
 ```rust
 # use topcoat::{Result, context::Cx, runtime::{shard, signal}, view::*};
@@ -268,11 +268,11 @@ async fn paginated(cx: &Cx) -> Result<impl View> {
 }
 ```
 
-Clicking a button changes `page` in the browser. Because the shard read it on the server, the shard runs again with the new value and renders the next page of items.
+Clicking a button changes `page` in the browser, and because the shard read it on the server, the shard runs again with the new value and swaps in the next page of items.
 
-A shard can also take a signal from its caller, through a parameter of type `Signal<T>`. The caller passes the signal itself, as in `limit: limit`. The signal does not change when its value does, so whether a change re-renders the shard depends on how the shard body reads it. See [`#[shard]`][shard].
+A shard can also take a signal from its caller, through a parameter typed `Signal<T>` and passed directly as `signal`. The signal handle does not change when its value does, so whether a change re-renders the shard depends on how the shard body reads it. See [`#[shard]`][shard].
 
-`.get_untracked()` and `.read_untracked()` read a signal's value without making anything depend on it. Use them when a body needs the current value but should not run again when it changes.
+Use `.get_untracked()` or `.read_untracked()` to read a value on the server without making changes to it trigger another render.
 
 [`Event`]: struct.Event.html
 [`expr!`]: macro.expr.html

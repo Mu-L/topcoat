@@ -5,7 +5,6 @@ mod remove;
 
 use clap::{Args, Subcommand};
 
-/// The arguments of `topcoat ui`.
 #[derive(Args)]
 pub struct UiCommand {
     #[command(subcommand)]
@@ -25,7 +24,6 @@ enum UiSubcommand {
 }
 
 impl UiCommand {
-    /// Runs the selected `ui` subcommand.
     pub fn run(self) {
         match self.command {
             UiSubcommand::Init(cmd) => cmd.run(),
@@ -36,8 +34,7 @@ impl UiCommand {
     }
 }
 
-/// The `--package` selector shared by the `ui` subcommands: the cargo package
-/// to operate on, whose root holds `components.toml`.
+/// Selects the Cargo package whose UI components will be managed.
 #[derive(Args)]
 struct PackageArg {
     /// Package to operate on, by name (like `cargo -p`); its root holds

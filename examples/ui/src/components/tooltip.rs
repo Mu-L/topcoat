@@ -3,19 +3,14 @@ use topcoat::{
     view::{Attributes, Child, StaticClass, View, class, component, view},
 };
 
-/// A short hint that shows while its trigger is hovered or focused.
+/// A short hint shown when its trigger is hovered or focused.
 ///
-/// Child nodes are the trigger and a [`tooltip_content`] with the hint. The
-/// hint shows on hover and on keyboard focus without any scripting. It always
-/// appears above the trigger and does not move away from the edge of the
-/// viewport, so keep hints short and leave room above the trigger.
+/// Pass the trigger and `tooltip_content` as children. Positioning does not adjust to
+/// the viewport edges, so keep the hint short and leave room for it.
 ///
-/// Users who do not hover never see the tooltip. So the trigger itself should
-/// say what it does, through its text or an `aria-label`.
-///
-/// The `attrs` are forwarded to the wrapping `<span>`. A `class` among them
-/// is appended to the component's classes. The same holds for
-/// [`tooltip_content`].
+/// Give the trigger its own text or accessible label. The tooltip must not be the only
+/// way to learn what the trigger does. To associate the hint with the trigger, give
+/// `tooltip_content` an `id` and reference it with the trigger's `aria-describedby`.
 ///
 /// ```ignore
 /// view! {
@@ -44,17 +39,8 @@ pub async fn tooltip(
     })
 }
 
-/// The classes for the [`tooltip_content`] bubble.
-///
-/// The bubble swaps the page colors: the background is the foreground color
-/// and the text is the background color. This sets the hint apart from the
-/// page. It sits above the trigger, centered, and ignores pointer events, so
-/// it never blocks the content under it.
-///
-/// It fades in on hover and on focus. The transition lists `visibility` with
-/// `allow-discrete`, so the bubble stays visible until the fade out ends.
-/// Both properties are listed by name, because `all` does not include
-/// `visibility`.
+/// Classes for a tooltip above its trigger. The bubble ignores pointer events. Opacity
+/// and visibility transitions let it fade in and out.
 const BUBBLE: StaticClass = class!(
     "pointer-events-none invisible absolute bottom-full left-1/2 z-50 mb-2 \
      -translate-x-1/2 rounded-md bg-foreground px-2.5 py-1 text-xs font-medium text-background \
@@ -64,9 +50,7 @@ const BUBBLE: StaticClass = class!(
      group-focus-within:visible group-focus-within:opacity-100",
 );
 
-/// The hint of a [`tooltip`], shown in a bubble above the trigger.
-///
-/// It has `role="tooltip"`.
+/// The hint a [`tooltip`] shows, in a bubble above its trigger.
 #[component]
 pub async fn tooltip_content(
     #[default] mut attrs: Attributes,

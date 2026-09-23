@@ -28,17 +28,14 @@ use crate::{
     view::hir::{LowerView, ViewBuilder},
 };
 
-/// The parsed body of a `view!` invocation. Expands to a value implementing
-/// [`topcoat_view::View`].
+/// The parsed body of a `view!` invocation. Lowers to a
+/// [`runtime::View`](topcoat_view::View).
 pub struct View {
-    /// The context named by a leading `cx =>` argument.
+    /// The request context binding supplied by a leading `cx =>` argument.
     ///
-    /// Inside a `#[component]`, `#[page]`, `#[layout]`, or `#[shard]`, the
-    /// context is available implicitly, so this is [`None`]. Anywhere else,
-    /// such as in a `#[route]` handler, the caller names it as
-    /// `view! { cx => ... }`, and the view renders with its own clone of it.
+    /// `None` uses the surrounding macro's context. An explicit
+    /// `view! { cx => ... }` renders against the supplied context.
     pub cx: Option<LeadingCx>,
-    /// The top-level nodes.
     pub nodes: Nodes,
 }
 

@@ -1,38 +1,22 @@
 /**
- * Morphs a range of the document into new content, keeping every node it
- * can match so that focus, scroll position, and other state the browser
- * holds on an element survive a replacement.
+ * Updates a DOM range while reusing matching nodes to preserve browser state.
  *
- * The algorithm is a port of idiomorph
- * (https://github.com/bigskysoftware/idiomorph) that works on a range of
- * siblings instead of a single element. Old and new siblings are paired in
- * order by node type and tag name. An `id` is a hard identity: an element is
- * never paired with one that has a different id. An element that contains a
- * surviving id is matched to the new element that contains the same id, so a
- * container is found again even when the siblings around it changed. An
- * element with a surviving id that ended up somewhere else is moved into
- * place instead of being created again.
+ * Adapted from idiomorph for sibling ranges. Nodes match by type and tag.
+ * IDs present in both versions identify elements across moves and help match
+ * their containing elements. Those elements keep their IDs when matched.
  *
- * Attributes and text are synced in place. The value of the focused element
- * is left alone, so a morph never disturbs what the user is typing.
+ * Attributes and text update in place. The focused element keeps its value.
  */
 
-/** Options for {@link morph}. */
 export interface MorphOptions {
-	/**
-	 * Keeps the live state of matching form controls, such as the value of an
-	 * input or the selection of a select, instead of resetting it to the new
-	 * content.
-	 */
+	/** Keeps the live state of matching form controls, including their defaults. */
 	preserveFormState?: boolean;
 }
 
-/** The state of one morph. */
+/** The ids present in both the old and the new content. */
 type Ctx = {
 	options: MorphOptions;
-	/** The select elements whose selection is being preserved. */
 	preservedSelects: WeakSet<HTMLSelectElement>;
-	/** The ids present in both the old and the new content. */
 	persistent: Set<string>;
 	/**
 	 * The persistent ids in each element's subtree, itself included, for the
@@ -73,7 +57,6 @@ export function morph(
 	);
 }
 
-/** The children of `parent` strictly between `start` and `end`. */
 function rangeNodes(
 	parent: ParentNode,
 	start: ChildNode | null,
@@ -88,7 +71,6 @@ function rangeNodes(
 	return nodes;
 }
 
-/** Collects the persistent ids of a morph from its old and new nodes. */
 function createContext(
 	parent: ParentNode,
 	oldNodes: Node[],
@@ -217,11 +199,10 @@ function morphChildren(
  * Finds the old sibling from `start` up to `end` that `newNode` should
  * morph into, or `null` to insert `newNode` instead.
  *
- * An id-set match wins outright. Otherwise the first soft match without
- * any persistent id is taken, unless the search would remove the focused
- * element or more persistent ids than `newNode` carries, or `newNode`'s
- * following siblings match the old nodes better, which means `newNode` was
- * inserted in front of them.
+ * Prefer a match sharing persistent IDs. Otherwise, choose a compatible
+ * node without persistent IDs. Stop before displacing focus or too many
+ * persistent IDs. Matching later siblings can indicate that `newNode`
+ * should be inserted before them instead.
  */
 function findBestMatch(
 	ctx: Ctx,
@@ -346,10 +327,8 @@ function morphNode(ctx: Ctx, oldNode: ChildNode, newNode: Node): ChildNode {
 }
 
 /**
- * Inserts `newNode` before `before`. A node whose subtree carries a
- * persistent id is not inserted as is, because the id's old element must
- * move into it: an empty element of the same kind is inserted and morphed
- * into the new node instead.
+ * Inserts `newNode` before `before`. If it contains persistent IDs, insert
+ * an empty element and morph it so matching old elements can move into it.
  */
 function insertNode(
 	ctx: Ctx,

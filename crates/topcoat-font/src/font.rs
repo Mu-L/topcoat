@@ -4,8 +4,7 @@ use topcoat_core::fnv1a::Fnv1a;
 
 use crate::FontFaces;
 
-/// The owned data backing a [`Font`]: its family name, its faces, and the
-/// content hash derived from them.
+/// A font's family name, faces, and content hash.
 #[derive(Debug, Clone, PartialEq)]
 pub struct FontData {
     family: String,
@@ -54,21 +53,15 @@ impl FontData {
     }
 }
 
-/// A handle to a web font: a family name and its `@font-face` rules.
+/// A lightweight, [`Copy`] handle to a font.
 ///
-/// A `Font` is [`Copy`] and cheap to pass around. It points to a
-/// [`FontData`] that is built the first time it is accessed.
-///
-/// Declare a font with the `font!` macro, register it on the router, and load
-/// it into a page with the `link` component. Two handles are equal only when
-/// they point to the same declaration.
+/// Create a handle with `font!`. Its data is initialized on first access and
+/// shared by every copy.
 #[derive(Debug, Clone, Copy)]
 pub struct Font(&'static LazyLock<FontData>);
 
 impl Font {
     /// Creates a font handle backed by `data`.
-    ///
-    /// The `font!` macro calls this for you.
     #[must_use]
     pub const fn new(data: &'static LazyLock<FontData>) -> Self {
         Self(data)
@@ -88,8 +81,7 @@ impl Font {
 
     /// The content hash of the family name and every face setting.
     ///
-    /// The hash is the same across builds for the same settings and changes
-    /// when any setting changes, so it can be used in a cache-busting URL.
+    /// Identical settings produce the same hash across builds.
     #[must_use]
     pub fn hash(&self) -> u64 {
         self.0.hash()

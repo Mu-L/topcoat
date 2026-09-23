@@ -7,17 +7,11 @@ use syn::{
 
 /// A bracketed list `[a, b, c]`, or a bare value treated as a one-element list.
 ///
-/// `fontsource_font!` wraps each axis's singular value (e.g.
-/// [`WeightValue`](crate::fontsource::font_face::WeightValue)) in this to cross-product
-/// the faces.
+/// Preserves whether the caller wrote a single value or a list.
 pub enum List<T> {
-    /// A bare value.
     One(T),
-    /// A bracketed list of values.
     Many {
-        /// The `[...]` brackets.
         bracket_token: Bracket,
-        /// The comma-separated values.
         items: Punctuated<T, Token![,]>,
     },
 }

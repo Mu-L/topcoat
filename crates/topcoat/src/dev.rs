@@ -1,9 +1,3 @@
-//! Integration with the `topcoat dev` server.
-//!
-//! Render [`script`] in the `<head>` of your pages to update them in the
-//! browser whenever `topcoat dev` finishes a new build. Outside of
-//! `topcoat dev`, it renders nothing.
-
 #[cfg(feature = "serve")]
 use std::net::SocketAddr;
 
@@ -17,15 +11,10 @@ use crate::{
     view::{View, component, view},
 };
 
-/// Tells the `topcoat dev` server that the application is ready to accept
-/// connections.
+/// Notifies the dev server that the application is ready to serve requests.
 ///
-/// Pass the address the application listens on, if it has one. Does nothing
-/// when the application is not running under `topcoat dev`.
-///
-/// [`serve`](crate::serve), [`serve_until`](crate::serve_until), and
-/// [`start`](crate::start) call this for you. Call it yourself only when you
-/// run the server another way.
+/// Pass the listener's TCP address when available. Does nothing unless
+/// `TOPCOAT_DEV_URL` is set by `topcoat dev`.
 #[cfg(feature = "serve")]
 pub async fn notify_ready(addr: Option<SocketAddr>) {
     let Ok(base) = std::env::var("TOPCOAT_DEV_URL") else {
@@ -59,13 +48,11 @@ fn http_to_ws(url: &str) -> String {
     }
 }
 
-/// Renders the `topcoat dev` client script.
+/// Adds automatic page updates while running under `topcoat dev`.
 ///
-/// Place it in the `<head>` of your pages. Once `topcoat dev` serves a new
-/// build, the script fetches the page again and merges the new HTML into it,
-/// keeping matching elements and their form state. When the runtime is
-/// loaded, signals whose identities still match keep their values too.
-/// Moving signal calls or component invocations can change their identities.
+/// The script updates the page after a successful rebuild. Matching elements
+/// keep their form state. Runtime signals keep their values when their
+/// identities still match. Moving signal or component calls can reset them.
 ///
 /// Changes to scripts, the base URL, or the doctype trigger a full reload.
 /// Reload manually to reset form state and signal values to their defaults.

@@ -2,15 +2,14 @@ use cookie::Cookie;
 
 use crate::Cookies;
 
-/// A [`Cookies`] adapter that runs a closure on every cookie written through
-/// it.
+/// A [`Cookies`] adapter that applies a transform to every cookie written
+/// through it.
 ///
-/// The closure runs on both `add` and `remove`, so attributes such as `Path`
-/// and `Domain` also reach removal cookies and the browser can match them.
-/// Reads pass through unchanged.
+/// Create it with [`Cookies::map`]. The closure changes the cookie before it
+/// reaches the wrapped jar.
 ///
-/// Created by [`Cookies::map`] and the attribute combinators, such as
-/// [`Cookies::default_same_site`].
+/// The closure runs for both `add` and `remove`, so removals receive the same
+/// path and domain attributes as writes. Reads pass through unchanged.
 #[derive(Debug, Clone, Copy)]
 pub struct Map<J, F> {
     inner: J,

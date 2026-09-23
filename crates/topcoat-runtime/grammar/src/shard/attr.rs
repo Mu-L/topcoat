@@ -1,6 +1,6 @@
 use syn::parse::{Parse, ParseStream};
 
-/// The arguments of the `#[shard]` attribute, which takes none.
+/// Arguments to `#[shard]`. The attribute accepts none.
 pub struct ShardAttr {}
 
 impl Parse for ShardAttr {

@@ -3,18 +3,11 @@ use topcoat_view::{Attribute, AttributeKeyViewParts, AttributeViewParts, PartsWr
 
 use crate::{Event, Expr};
 
-/// A closure that can handle a DOM event: any `FnOnce` taking an [`Event`].
-///
-/// Implemented automatically, so there is nothing to implement by hand.
 pub trait EventHandlerFn {}
 
 impl<T, R> EventHandlerFn for T where T: FnOnce(Event) -> R {}
 
-/// An event handler attribute, written `@event=$(...)` in a `view!` body.
-///
-/// It renders the JavaScript of its closure into a `data-topcoat-on:<event>`
-/// attribute. The browser runtime turns that source into a listener for the
-/// event on the element. The closure itself never runs on the server.
+/// An attribute that attaches a browser event handler to an element.
 pub struct EventHandler<K, F> {
     key: K,
     value: Expr<F>,
@@ -24,8 +17,6 @@ impl<K, F> EventHandler<K, F>
 where
     F: EventHandlerFn,
 {
-    /// Creates a handler for the event named by `key` from a closure
-    /// expression.
     #[inline]
     pub fn new(key: K, value: Expr<F>) -> Self {
         Self { key, value }

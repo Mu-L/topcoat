@@ -1,4 +1,4 @@
-A shard is a component that renders again on the server whenever its inputs change in the browser. Its arguments accept fixed values or runtime [expressions](macro.expr.html). The browser tracks the signals those expressions read, and when one changes, it requests a new render from the server and morphs the result into the page. A signal the shard body reads on the server counts as an input too. Each shard is an HTTP endpoint of your server, so its arguments **must not be trusted**.
+A shard is a component that re-renders on the server when its inputs change in the browser. Pass fixed values or runtime [expressions](macro.expr.html) as arguments. Changes to signals read by those expressions, or by the shard body, trigger a render. Each shard has an HTTP endpoint, so **validate its inputs and authorize access inside the shard**.
 
 ```rust
 use topcoat::{Result, context::Cx, runtime::shard, view::{View, view}};
@@ -17,7 +17,7 @@ async fn search_results(cx: &Cx, query: String) -> Result<impl View> {
 
 # Calling Shards
 
-Inside a [`view!`] body, call a shard like a component. Each parameter accepts a value of its declared type `T` or an [`Expr<T>`][`Expr`], such as a `$(...)` runtime expression:
+Inside a [`view!`] body, call a shard like a component. Each parameter accepts its declared type `T` or an `Expr<T>`, with conversion handled automatically:
 
 ```rust
 # use topcoat::{Result, context::Cx, view::*, runtime::{shard, signal, Event}};
@@ -36,17 +36,17 @@ Ok(view! {
 # }
 ```
 
-During the page render, the shard runs inline like any component. The server evaluates each argument expression once and embeds the resulting view in the page. No extra request happens.
+The initial page render includes the shard's content. It does not need a separate request.
 
-When the `query` signal changes, the browser sends the current argument values to the server, the shard function runs again, and the returned HTML is morphed into the shard's previous content. Elements that still exist are updated in place, so focus and what the user typed survive, and the rest of the page is left alone. Elements are matched by position and tag, and an `id` pins the match. Give each item of a list that can reorder an `id`, so the morph follows the item to its new position instead of rewriting the items in between.
+When `query` changes, the browser sends the current arguments to the server and updates the shard with the returned HTML. Existing elements are updated in place to preserve focus and input state. The rest of the page is unchanged.
 
-Several signal changes in the same tick result in one request. Starting a request aborts any earlier one still in flight, so the latest arguments win.
+Elements are matched by position and tag, or by `id` when present. Give items in a reorderable list stable IDs so each element follows its item. Signal changes in the same tick share one request. A new request aborts any earlier pending request, so the latest arguments win.
 
 # Shard State
 
-A shard's content is a full view. The shard can create signals, attach event handlers, and contain nested shards. A re-render rebuilds that content from the server's HTML, but the signals created in the shard body keep their values. Their current values travel with every re-render request, and [`signal`] resumes from them instead of starting over. Those values are user input and **must not be trusted**, like the shard's arguments.
+A shard supports the same content as a component. Signals created in its body keep their values across re-renders. The browser sends those values with each request, and [`signal`] restores them. **Treat restored values as user input**, just like shard arguments.
 
-Reading one of those signals on the server with `.get()` or `.read()` makes the shard depend on it. A change in the browser then re-renders only that shard, not the entire page:
+Reading one of those signals on the server with `.get()` or `.read()` makes the shard depend on it, so a change in the browser re-renders only that shard, not the entire page:
 
 ```rust
 use topcoat::{Result, context::Cx, runtime::{shard, signal}, view::{View, view}};
@@ -72,11 +72,11 @@ async fn paginated(cx: &Cx) -> Result<impl View> {
 # async fn load_page(_cx: &Cx, _page: usize) -> Result<Vec<String>> { Ok(vec![]) }
 ```
 
-The [runtime guide](../runtime/index.html#reading-signals-on-the-server) covers reads on the server in full, including the untracked variants and what a read outside any shard does to the page.
+See [Reading signals on the server](../runtime/index.html#reading-signals-on-the-server) for tracking rules.
 
 # Guards
 
-A shard has its own endpoint, and a request to it runs the shard function alone. Guards in the page or its layouts do not run, so a shard that renders private content must check authorization itself. The caller picks the argument values, so the check must cover them too: confirm that the current user may see the data the arguments select.
+A request to a shard's endpoint runs the shard without its page or layouts. Their guards do not protect it. Check authorization inside the shard, including whether the user may access the data selected by its arguments.
 
 ```rust
 use topcoat::{Result, context::Cx, runtime::shard, view::{View, view}};
@@ -101,11 +101,11 @@ The [`context`] module covers writing guards as functions on [`Cx`].
 
 # Arguments And Return Type
 
-Argument types must belong to the shared vocabulary of [`expr!`], since their values travel between Rust and JavaScript. Each argument must be a plain identifier, not a pattern. The return type is a [`Result`] of a value implementing [`View`], like a component's.
+Argument types must belong to the shared vocabulary of [`expr!`], since their values cross between Rust and JavaScript. The return type is a [`Result`] of a value implementing [`View`], like a component's.
 
-A parameter named `cx` that borrows [`Cx`] is special. Just like in a component, the server fills it with the request context, and the call site does not pass it.
+A parameter named `cx` of type `&Cx` receives the server request context. Callers omit this argument.
 
-A signal can also be passed to a parameter of type [`Signal<T>`]. The argument is the signal itself, which does not change when its value does. The shard therefore only re-renders on a change if its body makes a tracked read of the signal. This lets a shard take an input that does not trigger a re-render by itself:
+A parameter typed [`Signal<T>`] accepts a signal handle. Passing the handle alone does not make the shard depend on its value. A tracked read in the shard body creates that dependency. Use an untracked read to use the value without triggering renders when it changes:
 
 ```rust
 # use topcoat::{Result, context::Cx, view::*, runtime::{shard, signal, Signal}};
@@ -134,7 +134,7 @@ search_results(query: $(query.get()), limit: limit)
 
 # Registration
 
-Each shard is served by its own route on the [`Router`]. `.discover()` registers every shard linked into the binary. You can also register shards one by one:
+Each shard is served by a route on the [`Router`]. `.discover()` registers every shard linked into the binary; alternatively, mount shards individually:
 
 ```rust
 # use topcoat::{Result, router::Router, runtime::{shard, RouterBuilderShardExt}, view::{View, view}};
@@ -144,7 +144,6 @@ let router = Router::builder().shard(search_results).build();
 ```
 
 [`context`]: ../context/index.html
-[`Expr`]: struct.Expr.html
 [`Cx`]: ../context/struct.Cx.html
 [`Result`]: ../type.Result.html
 [`Router`]: ../router/struct.Router.html

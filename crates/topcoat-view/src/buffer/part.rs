@@ -9,14 +9,11 @@ use crate::{
     buffer::ViewBuffer,
 };
 
-/// A view part that writes its output when the view renders, not when it is
-/// built.
+/// A boxed view part that writes its output at render time.
 ///
-/// Implement this for values whose output is only known at render time,
-/// such as resolved asset URLs, and push them with
-/// [`PartsWriter::push_dyn`]. The writer passed to [`render`](Self::render)
-/// carries the [`HtmlContext`] of the position the part was pushed into, so
-/// everything written through it is escaped or validated for that position.
+/// Implement this when output must be computed during rendering. The
+/// writer passed to [`render`](Self::render) escapes or validates output
+/// for the part's HTML position.
 pub trait DynViewPart: 'static + fmt::Debug + Send + Sync {
     /// Writes this part's output into `w`.
     #[track_caller]
@@ -24,9 +21,8 @@ pub trait DynViewPart: 'static + fmt::Debug + Send + Sync {
 
     /// Returns an estimate of the number of bytes this part will write.
     ///
-    /// The estimate is used to pre-allocate the output, so aim for a close
-    /// value. A slight over-estimate is usually better than an
-    /// under-estimate. The default is `0`.
+    /// Used to pre-allocate the output buffer, so aim for a close estimate. A
+    /// slight over-estimate is usually preferable to an under-estimate.
     #[inline]
     fn size_hint(&self) -> usize {
         0
@@ -37,8 +33,8 @@ macro_rules! impl_push_primitive {
     ($method:ident, $ty:ty, $size_hint:expr) => {
         #[doc = concat!("Appends a `", stringify!($ty), "` rendered as text.")]
         ///
-        /// The rendered number contains no character that is significant in
-        /// any HTML context, so it is not escaped.
+        /// Its rendered form contains no character that is significant in any
+        /// HTML context, so no escaping applies.
         #[inline]
         pub fn $method(&mut self, value: $ty) -> &mut Self {
             self.size_hint += $size_hint;
@@ -48,26 +44,17 @@ macro_rules! impl_push_primitive {
     };
 }
 
-/// The writer a value pushes its view parts into.
+/// Collects renderable parts for one HTML position.
 ///
-/// The `view!` macro hands a `PartsWriter` to the position trait that
-/// matches each dynamic position in a template:
-/// [`NodeViewParts`](crate::NodeViewParts),
-/// [`AttributeValueViewParts`](crate::AttributeValueViewParts),
-/// [`AttributeKeyViewParts`](crate::AttributeKeyViewParts),
-/// [`ElementNameViewParts`](crate::ElementNameViewParts), or
-/// [`AttributeViewParts`](crate::AttributeViewParts).
+/// Rendering traits receive this writer to append their output. Its
+/// [`HtmlContext`] determines how that output is escaped or validated.
 ///
-/// An implementation of those traits pushes the value through the `push_*`
-/// methods, or delegates to another implementation of the same trait. Each
-/// writer carries the [`HtmlContext`] of its position, and the `push_*`
-/// methods tag the pushed text with that context, so rendering escapes or
-/// validates it for the position. The `push_*_unescaped` methods are the
-/// only way to skip that step.
+/// Use the `push_*` methods to append parts, or delegate to another
+/// implementation of the same rendering trait. Methods ending in
+/// `_unescaped` bypass escaping and require trusted input.
 ///
-/// The writer also adds up a size hint: an estimate of how many bytes
-/// everything pushed so far writes when rendered. It becomes the size hint of
-/// the built view, which pre-allocates the output when the view renders.
+/// The writer estimates the total output size to help allocate the
+/// rendered string.
 pub struct PartsWriter<'a> {
     sink: Sink<'a>,
     context: HtmlContext,
@@ -109,12 +96,9 @@ impl<'a> PartsWriter<'a> {
     /// Runs `f` with this writer sealing for a different context, then
     /// restores the current context.
     ///
-    /// In-crate compositions that span more than one position use this to
-    /// transition between the positions they cover, such as
-    /// [`Attribute`](crate::Attribute) moving from a key to a value or
-    /// [`push_comment`](Self::push_comment) sealing a comment body.
+    /// Use this when writing a structure that spans HTML positions.
     ///
-    /// This method should remain private to avoid potential XSS footguns.
+    /// Keep this private so callers cannot bypass a position's escaping rules.
     #[inline]
     pub(crate) fn in_context<R>(
         &mut self,
@@ -136,7 +120,7 @@ impl<'a> PartsWriter<'a> {
         }
     }
 
-    /// Appends a borrowed string, escaped for this writer's context.
+    /// Appends a borrowed string, sealed with this writer's context.
     #[inline]
     pub fn push_str(&mut self, value: &str) -> &mut Self {
         self.size_hint += Self::str_size_hint(value, self.context);
@@ -144,7 +128,7 @@ impl<'a> PartsWriter<'a> {
         self
     }
 
-    /// Appends a static string, escaped for this writer's context.
+    /// Appends a static string, sealed with this writer's context.
     #[inline]
     pub fn push_static_str(&mut self, value: &'static str) -> &mut Self {
         self.size_hint += Self::str_size_hint(value, self.context);
@@ -152,12 +136,11 @@ impl<'a> PartsWriter<'a> {
         self
     }
 
-    /// Appends a string literal held by reference, escaped for this writer's
+    /// Appends a static string held by reference, sealed with this writer's
     /// context.
     ///
-    /// Pass `&"..."`, which Rust promotes to a `&'static &'static str`. This
-    /// is cheaper than [`push_static_str`](Self::push_static_str), so prefer
-    /// it whenever the string is a literal.
+    /// Pass `&"..."` for a string literal. This avoids storing an extra
+    /// reference in the buffer's constants.
     #[inline]
     pub fn push_promoted_str(&mut self, value: &'static &'static str) -> &mut Self {
         self.size_hint += Self::str_size_hint(value, self.context);
@@ -165,7 +148,7 @@ impl<'a> PartsWriter<'a> {
         self
     }
 
-    /// Appends an owned string, escaped for this writer's context.
+    /// Appends an owned string, sealed with this writer's context.
     #[inline]
     pub fn push_string(&mut self, value: String) -> &mut Self {
         self.size_hint += Self::str_size_hint(&value, self.context);
@@ -173,11 +156,11 @@ impl<'a> PartsWriter<'a> {
         self
     }
 
-    /// Appends a borrowed string that renders verbatim, ignoring this
+    /// Appends a borrowed string that renders verbatim, bypassing this
     /// writer's context.
     ///
-    /// Use this only for trusted markup. Passing untrusted input skips
-    /// escaping and can lead to XSS vulnerabilities.
+    /// Use this only for trusted markup. Passing untrusted input defeats the
+    /// runtime's escaping and can lead to XSS vulnerabilities.
     #[inline]
     pub fn push_str_unescaped(&mut self, value: &str) -> &mut Self {
         self.size_hint += value.len();
@@ -185,11 +168,11 @@ impl<'a> PartsWriter<'a> {
         self
     }
 
-    /// Appends a static string that renders verbatim, ignoring this writer's
-    /// context.
+    /// Appends a static string that renders verbatim, bypassing this
+    /// writer's context.
     ///
-    /// Use this only for trusted markup. Passing untrusted input skips
-    /// escaping and can lead to XSS vulnerabilities.
+    /// Use this only for trusted markup. Passing untrusted input defeats the
+    /// runtime's escaping and can lead to XSS vulnerabilities.
     #[inline]
     pub fn push_static_str_unescaped(&mut self, value: &'static str) -> &mut Self {
         self.size_hint += value.len();
@@ -197,16 +180,14 @@ impl<'a> PartsWriter<'a> {
         self
     }
 
-    /// Appends a string literal held by reference that renders verbatim,
-    /// ignoring this writer's context.
+    /// Appends a static string held by reference that renders verbatim,
+    /// bypassing this writer's context.
     ///
-    /// Pass `&"..."`, which Rust promotes to a `&'static &'static str`. This
-    /// is cheaper than
-    /// [`push_static_str_unescaped`](Self::push_static_str_unescaped), so
-    /// prefer it whenever the string is a literal.
+    /// Pass `&"..."` for a string literal. This avoids storing an extra
+    /// reference in the buffer's constants.
     ///
-    /// Use this only for trusted markup. Passing untrusted input skips
-    /// escaping and can lead to XSS vulnerabilities.
+    /// Use this only for trusted markup. Passing untrusted input defeats the
+    /// runtime's escaping and can lead to XSS vulnerabilities.
     #[inline]
     pub fn push_promoted_str_unescaped(&mut self, value: &'static &'static str) -> &mut Self {
         self.size_hint += value.len();
@@ -214,11 +195,11 @@ impl<'a> PartsWriter<'a> {
         self
     }
 
-    /// Appends an owned string that renders verbatim, ignoring this writer's
-    /// context.
+    /// Appends an owned string that renders verbatim, bypassing this
+    /// writer's context.
     ///
-    /// Use this only for trusted markup. Passing untrusted input skips
-    /// escaping and can lead to XSS vulnerabilities.
+    /// Use this only for trusted markup. Passing untrusted input defeats the
+    /// runtime's escaping and can lead to XSS vulnerabilities.
     #[inline]
     pub fn push_string_unescaped(&mut self, value: String) -> &mut Self {
         self.size_hint += value.len();
@@ -226,18 +207,15 @@ impl<'a> PartsWriter<'a> {
         self
     }
 
-    /// Appends an HTML comment whose body is pushed by `build`.
+    /// Appends an HTML comment whose body is built through `build`.
     ///
-    /// The `<!--` and `-->` delimiters are written verbatim. Everything
-    /// `build` pushes through the writer it receives is escaped for the
-    /// [`Comment`](HtmlContext::Comment) context. That context escapes `>`,
-    /// so the body can never contain `-->` and end the comment early. This
-    /// makes it safe to build a comment from untrusted data with
-    /// [`push_str`](Self::push_str).
+    /// The writer passed to `build` uses [`Comment`](HtmlContext::Comment)
+    /// escaping. Use its regular push methods for untrusted text so it
+    /// cannot close the comment.
     ///
     /// # Panics
     ///
-    /// Panics if this writer's context is not [`Text`](HtmlContext::Text).
+    /// Panics if used in a non-text HTML context.
     #[inline]
     pub fn push_comment(&mut self, build: impl FnOnce(&mut PartsWriter<'_>)) -> &mut Self {
         assert!(
@@ -251,7 +229,7 @@ impl<'a> PartsWriter<'a> {
         self
     }
 
-    /// Appends a character, escaped for this writer's context.
+    /// Appends a character, sealed with this writer's context.
     #[inline]
     pub fn push_char(&mut self, value: char) -> &mut Self {
         // One to four UTF-8 bytes, or an escape sequence.
@@ -316,8 +294,8 @@ impl<'a> PartsWriter<'a> {
         self
     }
 
-    /// Appends a part that writes its output at render time, escaped for this
-    /// writer's context.
+    /// Appends a part that writes its output at render time, sealed with
+    /// this writer's context.
     #[inline]
     pub fn push_dyn(&mut self, part: Box<dyn DynViewPart>) -> &mut Self {
         self.size_hint += part.size_hint();
@@ -327,13 +305,13 @@ impl<'a> PartsWriter<'a> {
 
     /// Appends a nested view.
     ///
-    /// The view's content was already escaped for the positions it was built
-    /// for, so this writer's context does not apply. The view's size hint is
-    /// added to this writer's, so a view appended twice counts twice.
+    /// The view's content was already sealed with the contexts it was built
+    /// for; this writer's context does not apply. The view's size hint joins
+    /// this writer's, so a view spliced twice counts its output twice.
     ///
     /// # Panics
     ///
-    /// Panics if the handle is nested and belongs to a different build.
+    /// Panics if the view was built in a different, still building buffer.
     #[inline]
     pub fn push_view_handle(&mut self, handle: ViewHandle) -> &mut Self {
         self.size_hint += handle.size_hint();
@@ -341,7 +319,7 @@ impl<'a> PartsWriter<'a> {
         self
     }
 
-    /// Records a response status code. Renders no content.
+    /// Records a response status code; renders no content.
     #[cfg(feature = "http")]
     #[inline]
     pub fn push_status_code(&mut self, status_code: StatusCode) -> &mut Self {
@@ -349,7 +327,7 @@ impl<'a> PartsWriter<'a> {
         self
     }
 
-    /// Records response headers. Renders no content.
+    /// Records response headers; renders no content.
     #[cfg(feature = "http")]
     #[inline]
     pub fn push_headers(&mut self, headers: HeaderMap) -> &mut Self {
@@ -374,8 +352,8 @@ macro_rules! impl_sink_primitive {
 enum Sink<'a> {
     /// A view buffer under construction.
     Buffer(&'a mut ViewBuffer),
-    /// The collector capturing one attribute key or value, with the request
-    /// context used to render parts that cannot be held as is.
+    /// The collector capturing one attribute key or value, with the
+    /// context it renders parts under.
     Collector {
         collector: &'a mut AttributeCollector,
         cx: &'a Cx,

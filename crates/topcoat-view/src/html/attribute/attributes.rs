@@ -7,36 +7,34 @@ use crate::{
     AttributeValueViewParts, AttributeViewParts, HtmlContext, PartsWriter,
 };
 
-/// A collection of HTML attributes with unique keys, built at run time.
+/// A runtime collection of HTML attributes with unique keys.
 ///
-/// `Attributes` works like a map: each key appears at most once, and
-/// inserting a key again replaces its value. The order in which attributes
-/// render is unspecified. Build a collection with the
-/// [`attributes!`](https://docs.rs/topcoat/latest/topcoat/view/macro.attributes.html)
-/// macro, and render it in the attribute position of an element.
+/// Each key appears at most once. Inserting the same key again replaces its
+/// value. Attribute order is unspecified.
+/// Prefer constructing `Attributes` with the [`attributes!`](macro.attributes.html)
+/// macro.
 ///
-/// Keys and values are captured as an [`AttributeKey`] and an
-/// [`AttributeValue`] when they are inserted, so a collection does not
-/// borrow from the values it was built from.
+/// Keys and values are captured when inserted. The collection can be built
+/// separately from the element that renders it.
 #[derive(Debug, Default, Clone)]
 pub struct Attributes {
     map: HashMap<AttributeKey, AttributeValue>,
 }
 
 impl Attributes {
-    /// Creates an empty collection.
+    /// Creates an empty attribute collection.
     ///
-    /// The
+    /// Prefer the
     /// [`attributes!`](https://docs.rs/topcoat/latest/topcoat/view/macro.attributes.html)
-    /// macro is usually more convenient. Use this constructor to fill a
-    /// collection step by step.
+    /// macro when writing attributes directly. Use this constructor when the
+    /// collection must be populated incrementally.
     #[inline]
     #[must_use]
     pub fn new() -> Self {
         Attributes::default()
     }
 
-    /// Creates an empty collection with space for at least `capacity`
+    /// Creates an empty attribute collection with space for at least `capacity`
     /// attributes.
     #[inline]
     #[must_use]
@@ -46,27 +44,24 @@ impl Attributes {
         }
     }
 
-    /// Returns `true` if the collection contains the key `k`.
-    ///
-    /// A key whose value is [absent](AttributeValue::Absent) still counts.
+    /// Returns `true` if this collection contains an attribute with key `k`.
     #[inline]
     pub fn contains_key(&self, k: impl AsRef<str>) -> bool {
         self.map.contains_key(k.as_ref())
     }
 
-    /// Returns the value stored for the key `k`, if any.
+    /// Returns the captured value stored for attribute key `k`, if present.
     #[inline]
     pub fn get(&self, k: impl AsRef<str>) -> Option<&AttributeValue> {
         self.map.get(k.as_ref())
     }
 
-    /// Inserts an attribute, returning the previous value for the key if
-    /// there was one.
+    /// Inserts or replaces an attribute.
     ///
-    /// The key is captured as an [`AttributeKey`] and the value as an
-    /// [`AttributeValue`]. A value that leaves out its attribute, such as
-    /// `false` or `None`, is stored as [absent](AttributeValue::Absent). It
-    /// still replaces the previous value, but the attribute does not render.
+    /// Returns the previous value if the key was present. If `v` reports
+    /// that its attribute should be omitted, stores
+    /// [`AttributeValue::Absent`]. This still replaces the previous value
+    /// and retains the key, but renders no attribute.
     #[inline]
     pub fn insert(
         &mut self,
@@ -93,7 +88,8 @@ impl Attributes {
         self.map.insert(key, value)
     }
 
-    /// Removes the key `k`, returning its value if it was present.
+    /// Removes an attribute, returning its captured value if the key was
+    /// present.
     #[inline]
     pub fn remove(&mut self, k: impl AsRef<str>) -> Option<AttributeValue> {
         self.map.remove(k.as_ref())
@@ -105,14 +101,14 @@ impl Attributes {
         self.map.clear();
     }
 
-    /// Inserts every `(key, value)` entry from `iter`, replacing the values
-    /// of keys that are already present.
+    /// Inserts every `(key, value)` entry from `iter`, replacing any keys
+    /// already present.
     #[inline]
     pub fn extend(&mut self, iter: impl IntoIterator<Item = (AttributeKey, AttributeValue)>) {
         self.map.extend(iter);
     }
 
-    /// Returns an iterator over the keys and values, in unspecified order.
+    /// Returns an iterator over attribute keys and captured values.
     #[inline]
     #[must_use]
     pub fn iter(&self) -> <&Self as IntoIterator>::IntoIter {

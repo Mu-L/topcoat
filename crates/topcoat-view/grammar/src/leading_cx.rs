@@ -6,21 +6,16 @@ use syn::{
 };
 use topcoat_core_grammar::{ParseOption, paths::topcoat_context};
 
-/// The leading `cx =>` argument that names the request context a macro body
+/// The leading `cx =>` argument naming the request context a macro body
 /// renders against.
 ///
-/// Inside a `#[component]`, `#[page]`, `#[layout]`, or `#[shard]`, the
-/// context is available implicitly and the argument is left out. Anywhere
-/// else the caller names it, as in `view! { cx => ... }`. The `view!`,
-/// `live!`, `emit!`, and `attributes!` macros accept it.
+/// Omit this argument when the surrounding macro provides a context.
+/// Otherwise, name it explicitly, as in `view! { cx => ... }`.
 ///
-/// Only an identifier followed by `=>` is recognized. That sequence can never
-/// start markup or an attribute, so the argument never changes the meaning of
-/// otherwise valid input.
+/// An identifier followed by `=>` cannot begin an expression or markup,
+/// which makes this prefix unambiguous.
 pub struct LeadingCx {
-    /// The identifier naming the context.
     pub cx: Ident,
-    /// The `=>` after the identifier.
     pub fat_arrow_token: Token![=>],
 }
 

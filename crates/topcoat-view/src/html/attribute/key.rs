@@ -7,10 +7,10 @@ use topcoat_core::context::Cx;
 
 use crate::{Captured, HtmlContext, PartsWriter, PromotedStr, StaticStr, Unescaped};
 
-/// A value that can be used as an attribute name in a template.
+/// Converts a value used as an attribute key into view parts.
 ///
-/// A type that implements this trait can be used in the attribute key
-/// position of the [`view!`](https://docs.rs/topcoat/latest/topcoat/view/macro.view.html) macro:
+/// Implement this trait to use a type as a dynamic attribute name in
+/// [`view!`](https://docs.rs/topcoat/latest/topcoat/view/macro.view.html):
 ///
 /// ```rust
 /// # use topcoat::view::{View, component, view};
@@ -22,13 +22,8 @@ use crate::{Captured, HtmlContext, PartsWriter, PromotedStr, StaticStr, Unescape
 /// })
 /// # }
 /// ```
-///
-/// Attribute names have no escape mechanism, so strings pushed in this
-/// position are validated when the view renders. Rendering panics if the name
-/// contains a character that could break out of it, such as whitespace or
-/// `=`. See [`HtmlContext`](crate::HtmlContext) for the exact rules.
 pub trait AttributeKeyViewParts {
-    /// Pushes this attribute key into `parts`.
+    /// Appends this attribute key to the view being built.
     fn into_view_parts(self, cx: &Cx, parts: &mut PartsWriter<'_>);
 }
 
@@ -134,41 +129,29 @@ impl_tuple!(T1, T2, T3, T4, T5, T6, T7, T8, T9, T10);
 impl_tuple!(T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11);
 impl_tuple!(T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12);
 
-/// An attribute key captured from an [`AttributeKeyViewParts`] value.
+/// An attribute key captured from any [`AttributeKeyViewParts`] value.
 ///
-/// An [`Attributes`](crate::Attributes) collection stores its keys in this
-/// form. A key made of a single string keeps that string. Any other key is
-/// rendered into a `String` when it is captured. Each variant also keeps the
-/// context the string was pushed with, so the key is validated when it is
-/// written into a view. Keys compare and hash by their text alone.
+/// Keys retain their HTML context for validation when rendered. Equality
+/// and hashing use only the key's text.
 #[non_exhaustive]
 #[derive(Debug, Clone)]
 pub enum AttributeKey {
-    /// A string literal held by reference, as in [`PromotedStr`].
+    /// A static string held by reference.
     PromotedStr {
-        /// The key's text.
         value: &'static &'static str,
-        /// The context the text renders in.
         context: HtmlContext,
     },
     /// A static string.
     StaticStr {
-        /// The key's text.
         value: &'static str,
-        /// The context the text renders in.
         context: HtmlContext,
     },
     /// An owned string.
-    String {
-        /// The key's text.
-        value: String,
-        /// The context the text renders in.
-        context: HtmlContext,
-    },
+    String { value: String, context: HtmlContext },
 }
 
 impl AttributeKey {
-    /// Returns the key's text as it was captured, before validation.
+    /// Returns the key's text.
     #[inline]
     #[must_use]
     pub fn as_str(&self) -> &str {

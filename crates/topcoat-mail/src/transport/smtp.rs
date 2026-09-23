@@ -13,11 +13,10 @@ use crate::{
     mime::{self, BccHeader},
 };
 
-/// A [`Transport`] that sends mail to an SMTP server.
+/// A [`Transport`] that submits mail to an SMTP server.
 ///
-/// Use it in production with the submission server of a mail provider or with
-/// your own mail server. It keeps a pool of connections and reuses them
-/// across sends.
+/// Configure a mail provider's submission endpoint or your own server.
+/// Connections are pooled and reused across sends.
 ///
 /// ```no_run
 /// use topcoat_mail::SmtpTransport;
@@ -34,36 +33,34 @@ pub struct SmtpTransport {
 }
 
 impl SmtpTransport {
-    /// Configures a connection to `host` over TLS on port 465, which most
-    /// mail providers offer.
+    /// Configures a connection to `host` with implicit TLS on port 465.
     ///
     /// # Errors
     ///
-    /// Returns [`SmtpError`] if the TLS settings for `host` cannot be
-    /// created.
+    /// Returns [`SmtpError`] if the TLS parameters for `host` cannot be
+    /// established.
     pub fn relay(host: &str) -> Result<SmtpTransportBuilder, SmtpError> {
         Ok(SmtpTransportBuilder {
             inner: AsyncSmtpTransport::<Tokio1Executor>::relay(host).map_err(SmtpError)?,
         })
     }
 
-    /// Configures a connection to `host` on port 587 that is upgraded to TLS
-    /// with STARTTLS, for providers that do not offer port 465.
+    /// Configures a connection to `host` on port 587 using STARTTLS.
     ///
     /// # Errors
     ///
-    /// Returns [`SmtpError`] if the TLS settings for `host` cannot be
-    /// created.
+    /// Returns [`SmtpError`] if the TLS parameters for `host` cannot be
+    /// established.
     pub fn starttls(host: &str) -> Result<SmtpTransportBuilder, SmtpError> {
         Ok(SmtpTransportBuilder {
             inner: AsyncSmtpTransport::<Tokio1Executor>::starttls_relay(host).map_err(SmtpError)?,
         })
     }
 
-    /// Configures a connection to `host` on port 25 without encryption.
+    /// Configures an unencrypted connection to `host` on port 25.
     ///
-    /// Credentials and mail are sent as plain text, so only use this in
-    /// development, with a local test server such as Mailpit:
+    /// Credentials and messages travel in clear text. Use this with a local
+    /// development server:
     ///
     /// ```no_run
     /// use topcoat_mail::SmtpTransport;
@@ -77,10 +74,9 @@ impl SmtpTransport {
         }
     }
 
-    /// Configures a connection from a URL, which fits well into a single
-    /// environment variable:
+    /// Configures a connection from a URL:
     ///
-    /// - `smtps://user:pass@smtp.example.com:465` for TLS.
+    /// - `smtps://user:pass@smtp.example.com:465` for implicit TLS.
     /// - `smtp://user:pass@smtp.example.com:587?tls=required` for STARTTLS.
     /// - `smtp://localhost:1025` for an unencrypted development server.
     ///
@@ -110,14 +106,13 @@ impl Transport for SmtpTransport {
     }
 }
 
-/// Builder for an [`SmtpTransport`], created by [`SmtpTransport::relay`] and
-/// the other constructors.
+/// Assembles an [`SmtpTransport`], created by its connection constructors.
 pub struct SmtpTransportBuilder {
     inner: AsyncSmtpTransportBuilder,
 }
 
 impl SmtpTransportBuilder {
-    /// Sets the port, replacing the one the constructor chose.
+    /// Overrides the port the connection constructor chose.
     #[must_use]
     pub fn port(mut self, port: u16) -> SmtpTransportBuilder {
         self.inner = self.inner.port(port);
@@ -144,7 +139,7 @@ impl SmtpTransportBuilder {
         self
     }
 
-    /// Returns the finished [`SmtpTransport`].
+    /// Finishes the builder into an [`SmtpTransport`].
     #[must_use]
     pub fn build(self) -> SmtpTransport {
         SmtpTransport {
@@ -153,7 +148,7 @@ impl SmtpTransportBuilder {
     }
 }
 
-/// The error returned when an SMTP connection cannot be configured.
+/// The reason an SMTP connection could not be configured.
 #[derive(Debug, thiserror::Error)]
 #[error("invalid SMTP configuration: {0}")]
 pub struct SmtpError(lettre::transport::smtp::Error);

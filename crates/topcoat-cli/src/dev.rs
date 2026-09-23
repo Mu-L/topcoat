@@ -1,22 +1,8 @@
-//! The `topcoat dev` command: an auto-rebuilding development server.
+//! Runs an application and rebuilds it when source files change.
 //!
-//! Six pieces cooperate, tied together by the event loop in
-//! [`DevCommand::run`]:
-//!
-//! - [`broadcast_server`]: a long-lived local WebSocket server that browsers connect to. It
-//!   broadcasts a reload message whenever a freshly started application reports ready.
-//! - [`watch`]: watches every local package, both workspace members and path dependencies, and
-//!   coalesces bursts of filesystem events into single change notifications.
-//! - [`keyboard`]: reports the `r` keypress that triggers a manual rebuild.
-//! - [`build`]: compiles the application and bundles its assets in a cancellable background task.
-//! - [`app_server`]: the application process itself.
-//! - [`port`]: resolves the host and port the application will bind before each start.
-//!
-//! The loop's core policy is that the running application is only ever
-//! replaced by a *successful* build: while a rebuild is in flight, and after
-//! a failed one, the previous process keeps serving. A successful build that
-//! produced the very same binary also leaves the running process (and its
-//! browsers) undisturbed, unless the rebuild was requested manually.
+//! The running application keeps serving while a rebuild is pending or has
+//! failed. A successful build replaces it only if the executable changed or
+//! the user requested a manual rebuild.
 
 mod app_server;
 mod broadcast_server;
@@ -39,7 +25,6 @@ use watch::{Change, SourceWatcher};
 
 use crate::common::cargo::{BuildFlags, BuildOpts, BuildStamp};
 
-/// The arguments of `topcoat dev`.
 #[derive(Args)]
 pub struct DevCommand {
     #[command(flatten)]
@@ -47,7 +32,6 @@ pub struct DevCommand {
 }
 
 impl DevCommand {
-    /// Runs the development server until the user presses Ctrl-C.
     pub async fn run(self) {
         let opts: BuildOpts = self.build.into();
 
@@ -179,9 +163,8 @@ impl DevCommand {
     }
 }
 
-/// Start a rebuild, leaving the running application untouched: it keeps
-/// serving until the new build is ready. A stale in-flight build compiles
-/// sources that just changed again, so cancel it rather than wait for it.
+/// Starts a rebuild while the current app keeps serving. Cancels any pending build so
+/// it cannot replace the app with stale output.
 async fn rebuild(build: &mut Option<BuildTask>, opts: &BuildOpts, events: &EventBus) {
     if let Some(stale) = build.take() {
         stale.cancel().await;

@@ -68,12 +68,11 @@ use topcoat::{
     view::{Child, View, attributes, component, view},
 };
 
-/// A placeholder portrait for the workspace owner, served from the example's
-/// asset bundle.
+/// A stand-in portrait for the workspace's owner, served from the example's
+/// own asset bundle.
 const PORTRAIT: Asset = asset!("./portrait.svg");
 
-/// External links: the framework documentation, its source repository, and
-/// the registry the components were added from.
+/// External destinations linked from the showcase.
 const DOCS: &str = "https://docs.rs/topcoat";
 const REPOSITORY: &str = "https://github.com/tokio-rs/topcoat";
 const REGISTRY: &str = "https://github.com/tokio-rs/topcoat/tree/main/crates/topcoat-ui/registry";
@@ -89,7 +88,7 @@ async fn main() {
     topcoat::start(router).await.unwrap();
 }
 
-/// The possible deployment statuses and the badge variant for each.
+/// Deployment statuses and their badge styles.
 const STATUSES: [(&str, BadgeVariant); 4] = [
     ("Live", BadgeVariant::Primary),
     ("Building", BadgeVariant::Secondary),
@@ -97,7 +96,7 @@ const STATUSES: [(&str, BadgeVariant); 4] = [
     ("Failed", BadgeVariant::Destructive),
 ];
 
-/// Returns the badge variant for the deployment status `status`.
+/// The badge variant the deployment status `status` shows in.
 fn status_variant(status: &str) -> BadgeVariant {
     STATUSES
         .iter()
@@ -323,8 +322,7 @@ async fn buttons_card() -> Result<impl View> {
     })
 }
 
-/// Standalone alerts. An alert already has its own surface, so it is not
-/// placed in a card.
+/// Alerts displayed without a surrounding card.
 #[component]
 async fn notices() -> Result<impl View> {
     Ok(view! {
@@ -358,16 +356,14 @@ async fn notices() -> Result<impl View> {
     })
 }
 
-/// The sample team members: the initials their avatar falls back to, and
-/// their role.
+/// Example people with avatar initials and roles.
 const MEMBERS: [(&str, &str, &str, &str); 3] = [
     ("Grace Hopper", "grace@example.com", "GH", "Member"),
     ("Alan Turing", "alan@example.com", "AT", "Member"),
     ("Katherine Johnson", "katherine@example.com", "KJ", "Viewer"),
 ];
 
-/// A team roster: the owner with a portrait, then everyone else with their
-/// role.
+/// A roster showing each person and their role.
 #[component]
 async fn team_card() -> Result<impl View> {
     Ok(view! {
@@ -991,8 +987,7 @@ async fn branches_card(cx: &Cx) -> Result<impl View> {
     })
 }
 
-/// A toolbar of toggles: a segmented control where only one option can be
-/// pressed at a time, and independent toggles.
+/// Independent toggles and a group that allows one selection.
 #[component]
 async fn toolbar_card(cx: &Cx) -> Result<impl View> {
     let range = signal(cx, || String::from("week"));
@@ -1012,8 +1007,9 @@ async fn toolbar_card(cx: &Cx) -> Result<impl View> {
             )
             card_content(
                 <div class="flex flex-col items-start gap-4">
-                    // A separator divides the toolbar groups. The row's
-                    // fixed height sets the separator's height.
+                    // The groups of a toolbar stand apart with a rule
+                    // between them, and the row's height is what gives the
+                    // rule its own.
                     <div class="flex h-9 items-center gap-2">
                         toggle_group(
                             for (value, text) in [
@@ -1281,8 +1277,7 @@ async fn sheet_card(cx: &Cx) -> Result<impl View> {
     })
 }
 
-/// The sample deployments shown in the table: the commit, the target
-/// environment, and the status.
+/// Example deployments shown in the table.
 const DEPLOYMENTS: [(&str, &str, &str); 12] = [
     ("a1b2c3d", "production", "Live"),
     ("9f8e7d6", "staging", "Building"),
@@ -1382,8 +1377,8 @@ async fn deployments_card(cx: &Cx) -> Result<impl View> {
                                     )
                                 )
                             } else if listed(number - 1, current, pages) {
-                                // Show one ellipsis for each run of hidden
-                                // pages, at the first page of the run.
+                                // The first page left out of a run stands for
+                                // the whole run.
                                 pagination_item(pagination_ellipsis())
                             }
                         }
@@ -1405,13 +1400,8 @@ async fn deployments_card(cx: &Cx) -> Result<impl View> {
     })
 }
 
-/// Returns whether page `number` gets its own link while `page` is the current
-/// page out of `pages`.
-///
-/// Only the first, last, and current pages get a link. The pages between them
-/// collapse into an ellipsis. The neighbors of the current page are left out
-/// so the row fits the width of a card; "Previous" and "Next" step one page at
-/// a time.
+/// Whether to show a numbered link for this page. Shows the first, last, and current
+/// pages to keep the navigation compact.
 fn listed(number: usize, page: usize, pages: usize) -> bool {
     number == 1 || number == pages || number == page
 }

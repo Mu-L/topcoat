@@ -1,13 +1,10 @@
 use crate::pretty::Printer;
 
-/// A syntax node that can print itself as formatted text through a
-/// [`Printer`].
+/// Writes a value as formatted text through a [`Printer`].
 ///
-/// An implementation describes the layout by feeding text, breaks, and groups
-/// to the printer. The printer then decides which breaks become line breaks
-/// and handles indentation.
+/// Implementations describe the layout. The printer chooses line breaks and
+/// indentation.
 pub trait PrettyPrint {
-    /// Feeds this node to `printer`.
     fn pretty_print(&self, printer: &mut Printer<'_>);
 }
 

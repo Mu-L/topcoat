@@ -12,59 +12,46 @@ use crate::build::{BuildError, Command, Result};
 
 const REPO: &str = "tailwindlabs/tailwindcss";
 
-/// The Tailwind CLI release that is downloaded by default, without the
-/// leading `v`.
+/// The Tailwind CLI release downloaded by default (without the leading `v`).
 pub const DEFAULT_VERSION: &str = "4.3.2";
 
 /// Where the Tailwind CLI executable comes from.
-///
-/// The default is [`Github`](Self::Github) with [`DEFAULT_VERSION`] and no
-/// checksum.
 #[derive(Debug, Clone)]
 pub enum ExecutableSource {
-    /// Download the standalone CLI release from GitHub.
-    ///
-    /// The executable is cached in `topcoat/cache/tailwind` inside the Cargo
-    /// target directory, so every package of a workspace shares one copy and
-    /// later builds reuse it. When the target directory cannot be found from
-    /// `OUT_DIR`, the executable is cached in `OUT_DIR` itself.
+    /// Downloads the standalone CLI release from GitHub into a shared cache.
+    /// Reuses an existing cached copy.
     Github {
         /// The release to download, without the leading `v`.
         version: String,
-        /// The expected hash of the downloaded executable, as
-        /// `algorithm:hex`. The only supported algorithm is `sha256`, for
-        /// example `"sha256:b800b065..."`. The hash is checked once, right
-        /// after the download. `None` skips the check.
+        /// Expected hash of the downloaded binary as an `algorithm:hex`
+        /// string. Only `sha256` is currently supported, e.g.
+        /// `"sha256:b800b065..."`. Verified once after download; `None` skips
+        /// verification.
         checksum: Option<String>,
     },
-    /// Use an installed executable.
-    ///
-    /// A plain command name like `"tailwindcss"` is looked up in `PATH`. A
-    /// value that contains a path separator is a file path. Relative paths
-    /// are relative to the package root, where the build script runs.
+    /// Use an existing executable. A bare command name like `"tailwindcss"`
+    /// is resolved through `PATH`; anything containing a path separator is
+    /// used as a file path, with relative paths resolved against the package
+    /// root (the directory the build script runs in).
     Path(PathBuf),
-    /// Read the path of the executable from the named environment variable
-    /// when the build script runs.
-    ///
-    /// The value is interpreted like [`ExecutableSource::Path`]. If a change
-    /// to the variable should rerun the build script, print
-    /// `cargo:rerun-if-env-changed=<name>` from it. Printing any `rerun-if-*`
+    /// Read the executable from the named environment variable at build time,
+    /// interpreting its value like [`ExecutableSource::Path`]. Print
+    /// `cargo:rerun-if-env-changed=<name>` from your build script if a change
+    /// to the variable should rerun it; note that printing any `rerun-if-*`
     /// directive replaces Cargo's default change detection.
     Env(String),
 }
 
 impl ExecutableSource {
-    /// Returns an [`Executable`] for this source, downloading the CLI first if
-    /// needed.
-    ///
-    /// Only [`ExecutableSource::Github`] downloads, and it needs `OUT_DIR` to
-    /// find the cache directory.
+    /// Resolve to a runnable [`Executable`], downloading the CLI into the
+    /// shared Topcoat cache if needed. Only [`ExecutableSource::Github`]
+    /// downloads, and it needs `OUT_DIR` set to locate the cache.
     ///
     /// # Errors
     ///
-    /// Returns an error if the CLI cannot be downloaded or does not match its
-    /// checksum, if `OUT_DIR` is needed but not set, or if the variable of an
-    /// [`ExecutableSource::Env`] is not set.
+    /// Returns `Err` if the CLI cannot be downloaded, fails checksum
+    /// verification, or requires `OUT_DIR` while it is unset, or if an
+    /// [`ExecutableSource::Env`] variable is unset.
     pub fn resolve(&self) -> Result<Executable> {
         match self {
             Self::Github { version, checksum } => {
@@ -79,16 +66,13 @@ impl ExecutableSource {
         }
     }
 
-    /// Downloads the Tailwind CLI for `version` into the shared Topcoat cache,
-    /// or reuses the cached copy if it is already there.
+    /// Downloads `version` into the shared Topcoat cache unless already cached.
     ///
-    /// The executable is cached at
-    /// `topcoat/cache/tailwind/tailwindcss-<version>-<platform>` inside the
-    /// Cargo target directory. Build scripts that download the same version at
-    /// the same time take an exclusive file lock, so only one downloads while
-    /// the others wait and reuse its result. When `checksum` is given, the
-    /// download is checked against it before the file is moved into place. On
-    /// Unix the file is made executable.
+    /// Cache entries are specific to the version and host platform. A file
+    /// lock prevents concurrent downloads from overwriting one another.
+    /// When supplied, `checksum` must use the `sha256:` prefix and is checked
+    /// before the downloaded file enters the cache. Cached files are reused
+    /// without verification. On Unix, the downloaded file is made executable.
     fn download_from_github(version: &str, checksum: Option<&str>) -> Result<Executable> {
         // Parse the algorithm prefix up front so a malformed checksum fails
         // before anything is downloaded.
@@ -112,9 +96,8 @@ impl ExecutableSource {
         );
         let dest = dir.join(&file_name);
 
-        // Fast path: a previous build already cached a verified copy. `dest`
-        // only ever appears via an atomic rename of a fully downloaded and
-        // checksum-verified file, so its mere existence means it is complete.
+        // Cached files are complete downloads. Verification only happens
+        // during the download, when a checksum was supplied.
         if dest.exists() {
             return Ok(Executable::new(dest));
         }
@@ -124,21 +107,11 @@ impl ExecutableSource {
             source,
         })?;
 
-        // Serialize the download across processes. Cargo runs build scripts
-        // concurrently, so several packages can reach here at once for the same
-        // version; without this they would all download and race to rename over
-        // `dest`. Holding an exclusive lock on a sibling lock file lets the
-        // first process download while the rest block, then find the cached
-        // copy below. The lock is advisory, but every code path that writes
-        // `dest` goes through here, and the OS drops the lock if a holder dies,
-        // so a crash can never wedge later builds. It is held until this
-        // function returns.
+        // Lock across processes so one build downloads while the others wait.
+        // Keep the lock until this function returns.
         //
-        // The lock file is intentionally left on disk and never removed:
-        // `lock` acts on the file's inode, so unlinking it would let a waiter
-        // and a newcomer that recreates the path lock two different inodes and
-        // both proceed. It is an empty marker; once `dest` exists the fast path
-        // above returns before it is even opened.
+        // Leave the lock file in place. Removing it could let a waiter and a
+        // new process lock different inodes and download concurrently.
         let lock_path = dir.join(format!("{file_name}.lock"));
         let lock = fs::OpenOptions::new()
             .read(true)
@@ -242,16 +215,16 @@ impl ExecutableSource {
         })
     }
 
-    /// Returns the host platform suffix used in cache filenames, such as
-    /// `macos-arm64` or `windows-x64.exe`.
+    /// The host platform suffix used in cache filenames.
     fn platform() -> Result<&'static str> {
         let asset = Self::asset_name()?;
         Ok(asset.strip_prefix("tailwindcss-").unwrap_or(asset))
     }
 
-    /// Returns the directory the downloaded CLI is cached in:
-    /// `topcoat/cache/tailwind` in the Cargo target directory, or `OUT_DIR`
-    /// itself when the target directory cannot be found.
+    /// The directory the downloaded CLI is cached in: the shared Topcoat cache
+    /// (`topcoat/cache/tailwind`) under the Cargo target directory, falling
+    /// back to `OUT_DIR` itself when the build runs outside Cargo's target
+    /// layout.
     fn cache_dir() -> Result<PathBuf> {
         if let Some(dir) = topcoat_core::cache::cache_dir("tailwind") {
             return Ok(dir);
@@ -270,45 +243,31 @@ impl Default for ExecutableSource {
     }
 }
 
-/// A Tailwind CLI executable that can be run.
-///
-/// Get one from [`ExecutableSource::resolve`], or create one for a known
-/// path with [`Executable::new`].
+/// A Tailwind CLI executable resolved from an [`ExecutableSource`].
 #[derive(Debug)]
 pub struct Executable {
     path: PathBuf,
 }
 
 impl Executable {
-    /// Creates an executable for `path`.
-    ///
-    /// A plain command name like `"tailwindcss"` is looked up in `PATH` when
-    /// it runs.
+    /// An executable at `path`. A bare command name like `"tailwindcss"` is
+    /// resolved through `PATH` when run.
     #[must_use]
     pub fn new(path: impl Into<PathBuf>) -> Self {
         Self { path: path.into() }
     }
 
-    /// Runs the executable with the arguments of `command` and waits for it to
-    /// exit.
+    /// Run `command` with this executable and wait for it to exit.
     ///
     /// # Errors
     ///
-    /// Returns an error if the process cannot be started or exits with a
+    /// Returns `Err` if the process cannot be spawned or exits with a
     /// non-zero status.
     pub fn run(&self, command: &Command) -> Result {
-        // The standalone Tailwind CLI is a Bun single-file executable that
-        // unpacks its embedded native modules (the Oxide scanner, Lightning
-        // CSS, the file watcher) into the temporary directory and loads them
-        // with `dlopen`. On filesystems that support `O_TMPFILE` each run gets
-        // a private anonymous copy, but otherwise Bun falls back to named files
-        // at deterministic paths derived from the binary. Two processes running
-        // the same shared executable then race on those paths, and one can load
-        // a module while another is still writing it. For the scanner, this
-        // shows up as its `Scanner` export being undefined. Give each run its
-        // own temporary directory so the extraction paths never collide.
-        // Rooting it next to the executable keeps it on a filesystem that
-        // permits execution, which the system temporary directory may not.
+        // The CLI extracts native modules before loading them. Give each run
+        // a private directory so concurrent processes cannot read files that
+        // another process is still writing. Prefer a location that permits
+        // loading executable files.
         let scratch = ScratchDir::new(&self.scratch_root())?;
 
         let status = command
@@ -329,11 +288,8 @@ impl Executable {
         Ok(())
     }
 
-    /// Returns the directory a per-run [`ScratchDir`] is created in: Cargo's
-    /// `OUT_DIR` when set, otherwise the directory holding the executable, and
-    /// finally the system temporary directory. The first two sit under the
-    /// Cargo target directory, which permits executing the native modules Bun
-    /// unpacks there.
+    /// Selects a parent for each run's temporary directory. Prefers `OUT_DIR`,
+    /// then the executable's directory, then the system temporary directory.
     fn scratch_root(&self) -> PathBuf {
         if let Some(out_dir) = env::var_os("OUT_DIR") {
             return PathBuf::from(out_dir);
@@ -353,7 +309,7 @@ struct ScratchDir {
 }
 
 impl ScratchDir {
-    /// Creates a uniquely named directory inside `root`.
+    /// Create a uniquely named directory inside `root`.
     fn new(root: &Path) -> Result<Self> {
         // The counter keeps names unique within a build script, and the process
         // id keeps them unique across the build scripts that share a `root`
@@ -371,7 +327,7 @@ impl ScratchDir {
         Ok(Self { path })
     }
 
-    /// Returns the path of the created directory.
+    /// The path of the created directory.
     fn path(&self) -> &Path {
         &self.path
     }

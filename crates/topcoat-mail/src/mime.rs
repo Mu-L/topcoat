@@ -9,19 +9,15 @@ use topcoat_core::context::Cx;
 use crate::{Attachment, Mail, SendError, TextBody, text::text_from_html};
 
 impl Mail {
-    /// Renders the mail into a complete RFC 5322 message: the headers
-    /// followed by the MIME body.
+    /// Renders the mail into its RFC 5322 wire form.
     ///
-    /// The HTML body is rendered with `cx`, and the plain-text body is
-    /// derived from it unless the mail's [`TextBody`] says otherwise. A
-    /// `Date` and `Message-ID` are generated if the mail does not set them,
-    /// so two calls can produce different messages. The `Bcc` header is left
-    /// out, as in a sent mail.
+    /// Returns the headers and MIME body. Renders HTML with `cx` and derives
+    /// plain text according to the configured [`TextBody`]. Generates `Date`
+    /// and `Message-ID` when they are unset, so repeated calls may produce
+    /// different messages. The output omits `Bcc` recipients.
     ///
-    /// Transports do this themselves, so you do not need to call it before
-    /// sending. Use it to pass the message on elsewhere, for example to a
-    /// mail provider's API that accepts raw messages, or to check the exact
-    /// output in a test.
+    /// Use this for services that accept raw messages or tests that inspect
+    /// message bytes. You do not need to call it before sending.
     ///
     /// # Errors
     ///
@@ -35,12 +31,8 @@ impl Mail {
 
 /// Whether the assembled message retains its `Bcc` header.
 ///
-/// The wire form of a sent mail must not reveal `Bcc` recipients, so
-/// assembly drops the header after deriving the envelope. [`Dropped`]
-/// (`BccHeader::Dropped`) is therefore correct for every delivering
-/// transport; [`Kept`](BccHeader::Kept) is for inspection output like
-/// [`FileTransport`](crate::FileTransport)'s `.eml` files, where losing the
-/// `Bcc` recipients would hide part of the mail.
+/// Use [`Dropped`](BccHeader::Dropped) for delivery so recipients cannot see
+/// the `Bcc` list. Use [`Kept`](BccHeader::Kept) for local inspection.
 #[derive(Clone, Copy, Debug)]
 pub(crate) enum BccHeader {
     /// Remove the `Bcc` header from the assembled message.

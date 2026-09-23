@@ -2,30 +2,28 @@ use std::fmt::Write;
 
 use crate::Font;
 
-/// A function that writes the URL of a [`Font`]'s stylesheet.
+/// A callback that writes a [`Font`]'s stylesheet URL.
 pub type ResolveFontRouteFn = dyn Fn(Font, &mut dyn Write) -> std::fmt::Result + Send + Sync;
 
-/// Resolves a [`Font`] to the URL of its stylesheet.
+/// Resolves fonts to their hosted stylesheet URLs.
 ///
-/// A `FontResolver` lives in the app context. A [`Font`] used as an attribute
-/// value in a view reads it to render the stylesheet URL. Registering a font on
-/// the router sets it up, so application code does not need to create one.
+/// Register in app context to control the URLs rendered for [`Font`] values.
 pub struct FontResolver {
     resolve_fn: Box<ResolveFontRouteFn>,
 }
 
 impl FontResolver {
-    /// Creates a resolver that calls `resolve_fn`.
+    /// Builds a resolver from a callback.
     #[must_use]
     pub fn new(resolve_fn: Box<ResolveFontRouteFn>) -> Self {
         Self { resolve_fn }
     }
 
-    /// Writes the stylesheet URL of `font` to `write`.
+    /// Invokes the underlying callback.
     ///
     /// # Errors
     ///
-    /// Returns any error from the resolver function.
+    /// Propagates errors of the registered [`ResolveFontRouteFn`].
     pub fn resolve(&self, font: Font, write: &mut dyn Write) -> std::fmt::Result {
         (self.resolve_fn)(font, write)
     }

@@ -4,36 +4,34 @@ use super::{module, package::Package, state::InstallState};
 
 /// A component removed by [`remove`].
 pub struct Removed {
-    /// The name of the component.
+    /// The component's name.
     pub name: String,
-    /// The path of the deleted file, relative to the package root.
+    /// The package-relative path of the deleted file.
     pub file: PathBuf,
-    /// The name of the registry it was added from.
+    /// The registry it had been added from.
     pub registry: String,
 }
 
-/// Removes installed components from the package: implements
-/// `topcoat ui remove`.
+/// Removes installed components.
 ///
-/// For each component, this deletes its file, removes its `pub mod`
-/// declaration from the components module file, and drops it from
-/// `components.toml`. Components that were installed as its dependencies are
-/// kept.
-///
-/// With `registry`, the components are removed from that registry. Without
-/// it, each component must be installed from exactly one registry. All names
-/// are checked before any file is deleted.
+/// Resolves every requested component before deleting files. Use `registry` to select
+/// the source registry when a component name is installed from several registries.
+/// Saves the install state after all removals. An I/O failure can leave some removals
+/// complete and others unfinished.
 ///
 /// # Errors
 ///
-/// Returns an error if the package has no `components.toml`, if a component
-/// is not installed or is installed from several registries and `registry` is
-/// `None`, if the components directory has both a `<dir>.rs` and a `mod.rs`
-/// module file, or if a file cannot be deleted or written.
+/// Returns an error if the install state cannot be loaded, a component's
+/// registry cannot be resolved (unknown name, ambiguous across registries),
+/// a file deletion fails for a reason other than the file already being gone,
+/// a module declaration cannot be updated, or the state cannot be saved.
 ///
 /// # Panics
 ///
-/// Panics if an internal invariant of the install state is broken.
+/// Panics if a registry resolved during the up-front resolution phase is no
+/// longer present in the install state when its component is deleted. This is
+/// an internal invariant: resolution inserts the target pair, so the registry
+/// must still be tracked.
 #[track_caller]
 pub fn remove(
     package: &Package,
@@ -99,8 +97,8 @@ pub fn remove(
     Ok(removed)
 }
 
-/// Determines which registry the component should be removed from: the one named
-/// via `registry`, or the sole registry that has it installed.
+/// Selects the named registry, or the sole registry from which the component is
+/// installed.
 fn resolve_registry(
     component: &str,
     registry: Option<&str>,
