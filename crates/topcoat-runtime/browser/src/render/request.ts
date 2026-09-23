@@ -1,3 +1,6 @@
+/** Identifies a page rerun when set to "true" on a POST request. */
+export const RUNTIME_HEADER = "X-Topcoat-Runtime";
+
 /** Batches re-renders and accepts responses only while their owner is live. */
 export class RenderRequest {
 	private controller: AbortController | null = null;

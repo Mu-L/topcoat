@@ -6,16 +6,15 @@ use std::{
     task::Poll,
 };
 
-use http::request::Parts;
 use topcoat_core::{
-    context::{AppContext, ContextValues, Cx, RequestContext, try_request_context, with_identity},
+    context::{AppContext, Cx, try_request_context, with_identity},
     error::Result,
 };
 
 use crate::{
     Body, Endpoint, EndpointIndex, Endpoints, Layer, Next, OriginLayer, RawPathParams, Route,
     RouteId, RouteIndex, RouterBuilder, Routes, Terminal, TrustedProxies,
-    error::{REWRITE_LIMIT, RewriteError, RewriteLoopError, internal_server_response, respond},
+    error::{RewriteChain, RewriteError, internal_server_response, respond},
     proxy::ClientIp,
     request::{OriginalParts, Request},
     response::{Response, ResponseHeaders, response_headers},
@@ -86,8 +85,8 @@ impl Router {
     /// Handles one request inside the panic isolation boundary.
     async fn handle_inner(&self, request: Request) -> Response {
         let inner = &*self.inner;
-        // The client's address comes from the headers the request arrived
-        // with, which no rewrite changes, so it is resolved once.
+        // Resolve the client's address once from the original request,
+        // before any rewrite can replace its headers.
         let client_ip = ClientIp(inner.trusted_proxies.resolve(&request));
         let (mut parts, mut body) = request.into_parts();
         let original = OriginalParts(Arc::new(parts.clone()));
@@ -99,7 +98,7 @@ impl Router {
             // values carried by rewrites come along, and the router's own
             // values are installed after them so they take precedence.
             let cx = Cx::new(Arc::clone(&inner.app_context))
-                .with_many(chain.context.clone())
+                .with_many(chain.context().clone())
                 .with_many((
                     Arc::clone(&self.inner),
                     ResponseHeaders::new(),
@@ -200,55 +199,6 @@ pub(crate) struct RouterInner {
     /// The compression applied to responses on their way out.
     #[cfg(feature = "compression")]
     pub(crate) compression: crate::Compression,
-}
-
-/// What a request remembers across the dispatches of a rewrite chain.
-///
-/// A request served in one dispatch leaves it empty. Each rewrite extends
-/// it, and every dispatch after a rewrite starts its context from the
-/// carried values.
-#[derive(Default)]
-struct RewriteChain {
-    /// The paths the request was dispatched under so far, in order.
-    visited: Vec<String>,
-    /// The values rewrites carried into the later dispatches.
-    context: RequestContext,
-}
-
-impl RewriteChain {
-    /// Records the dispatch with `previous` as the one `rewrite` came out of
-    /// and builds the request for the next dispatch, which keeps the headers,
-    /// and the method unless the rewrite changes it, under the rewritten path
-    /// and query.
-    ///
-    /// Fails when the request was already dispatched under the rewritten
-    /// path or the chain grew past the rewrite limit.
-    fn follow(&mut self, previous: &Parts, rewrite: RewriteError) -> Result<Request> {
-        let rewrite = rewrite.into_parts();
-        let target = rewrite.path_and_query;
-        let uri = &previous.uri;
-        let path = uri
-            .path_and_query()
-            .map_or(uri.path(), http::uri::PathAndQuery::as_str);
-        self.visited.push(path.to_owned());
-        if self.visited.iter().any(|path| path == target.as_str()) {
-            return Err(RewriteLoopError::cycle(&self.visited, target.as_str()).into());
-        }
-        if self.visited.len() > REWRITE_LIMIT {
-            return Err(RewriteLoopError::limit(&self.visited, target.as_str()).into());
-        }
-
-        let mut parts = previous.clone();
-        let mut uri = std::mem::take(&mut parts.uri).into_parts();
-        uri.path_and_query = Some(target);
-        parts.uri = http::Uri::from_parts(uri)
-            .expect("replacing the path of a valid request uri keeps it valid");
-        if let Some(method) = rewrite.method {
-            parts.method = method;
-        }
-        rewrite.context.install(&mut self.context);
-        Ok(Request::from_parts(parts, rewrite.body))
-    }
 }
 
 /// What a request was dispatched to, stored on its context.
@@ -800,6 +750,41 @@ mod tests {
         Box::pin(async move { format!("{} {}", method(cx), original_method(cx)).into_response(cx) })
     }
 
+    /// Changes the request method to `GET` while keeping the `/same` path.
+    fn rewrite_to_same_as_get(_cx: &Cx, _body: Body) -> RouteFuture<'_> {
+        Box::pin(async move { Err(rewrite("/same", Body::empty()).method(Method::GET).into()) })
+    }
+
+    /// Repeats `GET /same` to create a rewrite cycle.
+    fn rewrite_to_same(_cx: &Cx, _body: Body) -> RouteFuture<'_> {
+        Box::pin(async move { Err(rewrite("/same", Body::empty()).into()) })
+    }
+
+    /// Removes `x-dropped` and sets `x-added` before rewriting to `/echo-headers`.
+    fn rewrite_with_headers(cx: &Cx, _body: Body) -> RouteFuture<'_> {
+        Box::pin(async move {
+            let mut headers = crate::request::headers(cx).clone();
+            headers.remove("x-dropped");
+            headers.insert("x-added", http::HeaderValue::from_static("yes"));
+            Err(rewrite("/echo-headers", Body::empty())
+                .headers(headers)
+                .into())
+        })
+    }
+
+    /// Returns the `x-` request headers as `name=value` pairs separated by `&`.
+    fn echo_headers(cx: &Cx, _body: Body) -> RouteFuture<'_> {
+        Box::pin(async move {
+            crate::request::headers(cx)
+                .iter()
+                .filter(|(name, _)| name.as_str().starts_with("x-"))
+                .map(|(name, value)| format!("{name}={}", value.to_str().unwrap()))
+                .collect::<Vec<_>>()
+                .join("&")
+                .into_response(cx)
+        })
+    }
+
     /// A value a rewrite hands to the handler at its target.
     struct Carried(&'static str);
 
@@ -1109,6 +1094,61 @@ mod tests {
         assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
         // The chain never leaks to the client.
         assert_eq!(&body[..], b"internal server error");
+    }
+
+    #[test]
+    fn a_rewrite_to_the_same_path_with_another_method_is_a_fresh_dispatch() {
+        let router = RouterBuilder::new()
+            .route(RouteFn::new(
+                Method::POST,
+                path("/same"),
+                rewrite_to_same_as_get,
+            ))
+            .route(RouteFn::new(Method::GET, path("/same"), echo_methods))
+            .build();
+
+        let (status, _, body) = send(&router, Method::POST, "/same");
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(&body[..], b"GET POST");
+    }
+
+    #[test]
+    fn a_rewrite_to_the_same_method_and_path_is_a_cycle() {
+        let router = RouterBuilder::new()
+            .route(RouteFn::new(Method::GET, path("/same"), rewrite_to_same))
+            .build();
+
+        let (status, _, body) = send(&router, Method::GET, "/same");
+        assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
+        assert_eq!(&body[..], b"internal server error");
+    }
+
+    #[test]
+    fn a_rewrite_can_replace_the_headers() {
+        let router = RouterBuilder::new()
+            .route(RouteFn::new(
+                Method::GET,
+                path("/old"),
+                rewrite_with_headers,
+            ))
+            .route(RouteFn::new(
+                Method::GET,
+                path("/echo-headers"),
+                echo_headers,
+            ))
+            .build();
+
+        let request = http::Request::builder()
+            .method(Method::GET)
+            .uri("/old")
+            .header("x-kept", "1")
+            .header("x-dropped", "2")
+            .body(Body::empty())
+            .unwrap();
+        let response = block_on(router.handle(request));
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = block_on(to_bytes(response.into_body(), usize::MAX)).unwrap();
+        assert_eq!(&body[..], b"x-kept=1&x-added=yes");
     }
 
     #[test]

@@ -2,7 +2,7 @@
 use topcoat_router::RouterBuilder;
 
 #[cfg(feature = "router")]
-use crate::PageRerunRoute;
+use crate::RuntimeLayer;
 
 /// Marks a router's app context as configured for the browser runtime.
 #[derive(Debug, Clone, Copy)]
@@ -11,11 +11,15 @@ pub struct RuntimeSetup;
 /// Sets up the browser runtime on a [`RouterBuilder`].
 #[cfg(feature = "router")]
 pub trait RouterBuilderRuntimeExt {
-    /// Registers the browser runtime's routes.
+    /// Enables page reruns by registering a [`RuntimeLayer`].
     ///
     /// Call this once when building a router that serves interactive pages.
-    /// Register application procedures and shards separately, through
-    /// discovery or explicit registration.
+    /// Register your application's pathless layers first so the runtime
+    /// layer can rewrite page reruns to `GET` before those layers run.
+    /// See [`RuntimeLayer`] for the request format and rewrite behavior.
+    ///
+    /// Register procedures and shards separately through discovery or
+    /// explicit registration.
     #[must_use]
     fn runtime(self) -> Self;
 }
@@ -23,8 +27,6 @@ pub trait RouterBuilderRuntimeExt {
 #[cfg(feature = "router")]
 impl RouterBuilderRuntimeExt for RouterBuilder {
     fn runtime(self) -> Self {
-        self.route(PageRerunRoute::root())
-            .route(PageRerunRoute::nested())
-            .app_context(RuntimeSetup)
+        self.layer(RuntimeLayer).app_context(RuntimeSetup)
     }
 }

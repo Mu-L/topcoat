@@ -1,26 +1,33 @@
 use std::{any::Any, sync::Mutex};
 
-use http::{Method, uri::PathAndQuery};
-use topcoat_core::context::RequestContext;
+use http::{HeaderMap, Method, request::Parts, uri::PathAndQuery};
+use topcoat_core::{
+    context::{ContextValues, RequestContext},
+    error::Result,
+};
 
-use crate::Body;
+use crate::{Body, request::Request};
 
 /// How many rewrites one request may consume before the router gives up and
 /// responds 500.
-pub(crate) const REWRITE_LIMIT: usize = 8;
+const REWRITE_LIMIT: usize = 8;
 
-/// Builds an internal rewrite dispatching the request again at `path`.
+/// Builds an internal rewrite that handles the request again at `path`.
 ///
-/// Return this as an error to run the layers and handler at `path` with the
-/// supplied body. The method and headers are preserved unless overridden,
-/// and `path` may include a query string. The browser URL does not change.
-/// Read it with [`original_uri`](crate::request::original_uri).
+/// Return this as an error to run the layers and handler at `path` with
+/// the supplied body. The path may include a query string. The browser URL
+/// stays the same and remains available through
+/// [`original_uri`](crate::request::original_uri).
 ///
-/// The router refuses a rewrite to a path the request was already dispatched
-/// under, and stops a chain after 8 rewrites; either case responds 500.
+/// The method and headers are preserved by default. Use
+/// [`RewriteError::method`] to change the method and [`RewriteError::headers`]
+/// to replace the headers. [`RewriteError::with`] carries values into the
+/// new request context.
 ///
-/// Use [`RewriteError::method`] to change the method and
-/// [`RewriteError::with`] to carry values into the new request context.
+/// The router responds with 500 if a rewrite repeats a combination of
+/// method, path, and query already handled in the chain, or if the chain
+/// exceeds 8 rewrites. A `POST` can therefore be rewritten to a `GET` at
+/// the same URL.
 ///
 /// # Panics
 ///
@@ -53,6 +60,7 @@ pub fn rewrite(path: impl AsRef<str>, body: impl Into<Body>) -> RewriteError {
             .expect("rewrite path is not a valid uri path and query"),
         body: Mutex::new(body.into()),
         method: None,
+        headers: None,
         context: RequestContext::new(),
     }
 }
@@ -69,6 +77,7 @@ pub struct RewriteError {
     /// an [`Error`](topcoat_core::error::Error).
     body: Mutex<Body>,
     method: Option<Method>,
+    headers: Option<HeaderMap>,
     context: RequestContext,
 }
 
@@ -78,6 +87,17 @@ impl RewriteError {
     #[must_use]
     pub fn method(mut self, method: Method) -> Self {
         self.method = Some(method);
+        self
+    }
+
+    /// Replaces the headers of the rewritten request.
+    ///
+    /// To change individual headers, clone [`headers`](crate::request::headers),
+    /// edit the clone, and pass it here. For example, remove body headers
+    /// when rewriting a request with an empty body.
+    #[must_use]
+    pub fn headers(mut self, headers: HeaderMap) -> Self {
+        self.headers = Some(headers);
         self
     }
 
@@ -100,7 +120,7 @@ impl RewriteError {
     }
 
     /// Splits the rewrite into what the next dispatch needs.
-    pub(crate) fn into_parts(self) -> RewriteParts {
+    fn into_parts(self) -> RewriteParts {
         let body = match self.body.into_inner() {
             Ok(body) => body,
             Err(poisoned) => poisoned.into_inner(),
@@ -109,18 +129,19 @@ impl RewriteError {
             path_and_query: self.path_and_query,
             body,
             method: self.method,
+            headers: self.headers,
             context: self.context,
         }
     }
 }
 
-/// The contents of a [`RewriteError`], taken apart for the router's rewrite
-/// loop.
-pub(crate) struct RewriteParts {
-    pub(crate) path_and_query: PathAndQuery,
-    pub(crate) body: Body,
-    pub(crate) method: Option<Method>,
-    pub(crate) context: RequestContext,
+/// The request changes and context values carried by a [`RewriteError`].
+struct RewriteParts {
+    path_and_query: PathAndQuery,
+    body: Body,
+    method: Option<Method>,
+    headers: Option<HeaderMap>,
+    context: RequestContext,
 }
 
 impl std::fmt::Display for RewriteError {
@@ -131,34 +152,121 @@ impl std::fmt::Display for RewriteError {
 
 impl std::error::Error for RewriteError {}
 
-/// The failure that stops a runaway rewrite chain, responding 500.
+/// The dispatch history and context values shared across a request's rewrites.
 ///
-/// The message records the chain of paths for error reporting; it is never
-/// sent to the client.
+/// Each rewrite records the previous dispatch and adds its carried values.
+/// Later dispatches copy those values into their fresh request contexts.
+#[derive(Default)]
+pub(crate) struct RewriteChain {
+    /// Previous dispatches in the order they ran.
+    visited: Vec<Dispatch>,
+    /// Context values carried forward by rewrites.
+    context: RequestContext,
+}
+
+impl RewriteChain {
+    /// Returns the context values accumulated by earlier rewrites.
+    pub(crate) fn context(&self) -> &RequestContext {
+        &self.context
+    }
+
+    /// Records `previous` and builds the request specified by `rewrite`.
+    ///
+    /// Keeps the previous method and headers unless the rewrite replaces
+    /// them. Returns an error if the target's method, path, and query match
+    /// an earlier dispatch or if the chain exceeds [`REWRITE_LIMIT`].
+    pub(crate) fn follow(&mut self, previous: &Parts, rewrite: RewriteError) -> Result<Request> {
+        let rewrite = rewrite.into_parts();
+        self.visited.push(Dispatch::of(previous));
+        let next = Dispatch {
+            method: rewrite.method.unwrap_or_else(|| previous.method.clone()),
+            path_and_query: rewrite.path_and_query,
+        };
+        if self.visited.contains(&next) {
+            return Err(RewriteLoopError::cycle(&self.visited, &next).into());
+        }
+        if self.visited.len() > REWRITE_LIMIT {
+            return Err(RewriteLoopError::limit(&self.visited, &next).into());
+        }
+
+        let mut parts = previous.clone();
+        let mut uri = std::mem::take(&mut parts.uri).into_parts();
+        uri.path_and_query = Some(next.path_and_query);
+        parts.uri = http::Uri::from_parts(uri)
+            .expect("replacing the path of a valid request uri keeps it valid");
+        parts.method = next.method;
+        if let Some(headers) = rewrite.headers {
+            parts.headers = headers;
+        }
+        rewrite.context.install(&mut self.context);
+        Ok(Request::from_parts(parts, rewrite.body))
+    }
+}
+
+/// The method, path, and query used to identify a dispatch in a rewrite chain.
+#[derive(Debug, PartialEq, Eq)]
+struct Dispatch {
+    method: Method,
+    path_and_query: PathAndQuery,
+}
+
+impl Dispatch {
+    /// Identifies a dispatch from its request parts.
+    fn of(parts: &Parts) -> Self {
+        let path_and_query = parts.uri.path_and_query().cloned().unwrap_or_else(|| {
+            PathAndQuery::try_from(parts.uri.path())
+                .expect("the path of a valid request uri is a valid path and query")
+        });
+        Self {
+            method: parts.method.clone(),
+            path_and_query,
+        }
+    }
+}
+
+impl std::fmt::Display for Dispatch {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{} {}", self.method, self.path_and_query)
+    }
+}
+
+/// An error that stops a rewrite cycle or a chain exceeding the rewrite limit.
+///
+/// The router responds with 500. The message includes the dispatch history
+/// for error reporting and is never sent to the client.
 #[derive(Debug)]
-pub(crate) struct RewriteLoopError {
+struct RewriteLoopError {
     message: String,
 }
 
 impl RewriteLoopError {
-    /// A rewrite targeting a path the request was already dispatched under.
-    pub(crate) fn cycle(visited: &[String], target: &str) -> Self {
+    /// Reports a target whose method, path, and query repeat an earlier dispatch.
+    fn cycle(visited: &[Dispatch], target: &Dispatch) -> Self {
         Self {
             message: format!(
                 "the rewrite to {target} creates a cycle: {} -> {target}",
-                visited.join(" -> ")
+                Self::chain(visited)
             ),
         }
     }
 
-    /// A chain that ran past [`REWRITE_LIMIT`] without repeating a path.
-    pub(crate) fn limit(visited: &[String], target: &str) -> Self {
+    /// Reports a chain that exceeds [`REWRITE_LIMIT`].
+    fn limit(visited: &[Dispatch], target: &Dispatch) -> Self {
         Self {
             message: format!(
                 "the request was rewritten more than {REWRITE_LIMIT} times: {} -> {target}",
-                visited.join(" -> ")
+                Self::chain(visited)
             ),
         }
+    }
+
+    /// Formats the dispatch history with ` -> ` between entries.
+    fn chain(visited: &[Dispatch]) -> String {
+        visited
+            .iter()
+            .map(ToString::to_string)
+            .collect::<Vec<_>>()
+            .join(" -> ")
     }
 }
 

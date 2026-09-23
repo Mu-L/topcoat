@@ -6,7 +6,7 @@ import { Runtime } from "../runtime";
 import type { Scope } from "../scope";
 import type { SignalId } from "../signal-registry";
 import { F64 } from "../surrogate";
-import { PAGE_ROUTE_PREFIX } from "./page";
+import { RUNTIME_HEADER } from "./request";
 import { SHARD_ROUTE_PREFIX, ShardUnit } from "./shard";
 import { RenderUnit } from "./unit";
 
@@ -144,12 +144,11 @@ it("a re-run attaches each event handler once", async () => {
 	expect((globalThis as { clicks?: number }).clicks).toBe(1);
 });
 
-it("a page posts the values of every signal in the document to the pages route", async () => {
+it("a page posts the values of every signal in the document to its own URL", async () => {
 	const stub = stubFetch(500, "Internal Server Error");
-	globalThis.location = {
-		pathname: "/search",
-		search: "?q=shoes",
-	} as unknown as Location;
+	globalThis.location = new URL(
+		"https://app.example/search?q=shoes",
+	) as unknown as Location;
 
 	const runtime = new Runtime();
 	runtime.registry.insert("p1", new F64(1));
@@ -171,21 +170,40 @@ it("a page posts the values of every signal in the document to the pages route",
 		(e: unknown) => e,
 	);
 
-	expect(stub.url()).toBe(`${PAGE_ROUTE_PREFIX}/search?q=shoes`);
+	expect(stub.url()).toBe("https://app.example/search?q=shoes");
+	expect(stub.request()?.method).toBe("POST");
+	const headers = stub.request()?.headers as Record<string, string>;
+	expect(headers[RUNTIME_HEADER]).toBe("true");
 	expect(JSON.parse(stub.request()?.body as string)).toEqual({
 		signals: { p1: 1, s1: 2 },
 	});
 	expect(String(error)).toContain("Page request failed");
 });
 
-it("the root page posts to the bare pages route", async () => {
+it("the root page posts to its own URL", async () => {
 	const stub = stubFetch(500, "Internal Server Error");
-	globalThis.location = { pathname: "/", search: "" } as unknown as Location;
+	globalThis.location = new URL("https://app.example/") as unknown as Location;
 
 	const runtime = new Runtime();
 	await refetch(runtime.page)().catch(() => undefined);
 
-	expect(stub.url()).toBe(PAGE_ROUTE_PREFIX);
+	expect(stub.url()).toBe("https://app.example/");
+});
+
+it("a page with a double-slash path posts signals to its own origin", async () => {
+	const stub = stubFetch(500, "Internal Server Error");
+	globalThis.location = new URL(
+		"https://app.example:8443//other.example/path?q=shoes#section",
+	) as unknown as Location;
+
+	const runtime = new Runtime();
+	await refetch(runtime.page)().catch(() => undefined);
+
+	const requestUrl = new URL(stub.url() as string, location.href);
+	expect(requestUrl.origin).toBe(location.origin);
+	expect(requestUrl.pathname).toBe(location.pathname);
+	expect(requestUrl.search).toBe(location.search);
+	expect(requestUrl.hash).toBe("");
 });
 
 it("a page re-run morphs the body, keeping a focused input", async () => {
@@ -194,7 +212,7 @@ it("a page re-run morphs the body, keeping a focused input", async () => {
 		"OK",
 		`<!doctype html><html><head><title>t</title></head><body><input><p>2 results</p></body></html>`,
 	);
-	globalThis.location = { pathname: "/", search: "" } as unknown as Location;
+	globalThis.location = new URL("https://app.example/") as unknown as Location;
 	document.body.innerHTML = `<input><p>1 result</p>`;
 	const runtime = new Runtime();
 	runtime.start(document);
