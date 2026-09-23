@@ -134,18 +134,38 @@ search_results(query: $(query.get()), limit: limit)
 
 # Registration
 
-Each shard is served by a route on the [`Router`]. `.discover()` registers every shard linked into the binary; alternatively, mount shards individually:
+Register a shard on the [`Router`] so the browser can request new content. It implements [`Route`], so pass its name to `.route()`:
 
 ```rust
-# use topcoat::{Result, router::Router, runtime::{shard, RouterBuilderShardExt}, view::{View, view}};
+# use topcoat::{Result, router::Router, runtime::shard, view::{View, view}};
 # #[shard]
 # async fn search_results(query: String) -> Result<impl View> { Ok(view! { (query) }) }
-let router = Router::builder().shard(search_results).build();
+let router = Router::builder().route(search_results).build();
 ```
+
+With the `discover` feature enabled, `.discover()` registers all shards linked into the application.
+
+# Path
+
+Topcoat generates an internal path for each shard. This path can change between builds. To choose a stable endpoint, pass an absolute path to `#[shard]`:
+
+```rust
+use topcoat::{Result, runtime::shard, view::{View, view}};
+
+#[shard("/search/results")]
+async fn search_results(query: String) -> Result<impl View> {
+    Ok(view! { <p>"Results for " (query)</p> })
+}
+```
+
+The browser re-renders this shard with a `POST` request to `/search/results`. Arguments and signal values are sent in the request body, so the path cannot contain dynamic or catch-all parameters.
+
+The path follows the router's [path syntax](../router/index.html#paths). Groups affect layer matching but are omitted from the URL. For example, `#[shard("/(api)/search/results")]` serves re-render requests at `/search/results`.
 
 [`context`]: ../context/index.html
 [`Cx`]: ../context/struct.Cx.html
 [`Result`]: ../type.Result.html
+[`Route`]: ../router/trait.Route.html
 [`Router`]: ../router/struct.Router.html
 [`signal`]: fn.signal.html
 [`Signal<T>`]: struct.Signal.html

@@ -11,7 +11,7 @@ use topcoat::{
     Result,
     context::Cx,
     router::{Body, Route, Router, request::IDENTITY_HEADER, response::Response, to_bytes},
-    runtime::{Shard, ShardRoute, Signal, shard, signal},
+    runtime::{Signal, shard, signal},
     view::{View, ViewExt, component, emit, live, view},
 };
 
@@ -67,6 +67,16 @@ async fn without_arguments(cx: &Cx) -> Result<impl View> {
     Ok(view! { <p>(page.get())</p> })
 }
 
+#[shard("/search/results")]
+async fn at_path(query: String) -> Result<impl View> {
+    Ok(view! { <p>(query)</p> })
+}
+
+#[shard("/(api)/grouped")]
+async fn grouped(query: String) -> Result<impl View> {
+    Ok(view! { <p>(query)</p> })
+}
+
 #[shard]
 async fn region_probe() -> Result<impl View> {
     // Shards require settled views. Capture the region's first content to
@@ -82,11 +92,11 @@ async fn region_probe() -> Result<impl View> {
     Ok(view! { (first) })
 }
 
-/// The shard id and identity arguments of the scope start marker in `html`.
+/// Extracts the endpoint URL and invocation identity from a shard start marker.
 fn scope_marker(html: &str) -> (&str, &str) {
     let start = html.find("::topcoat::shard::start(").expect(html);
     // The marker's quoted arguments alternate with the separators between
-    // them: the shard id, then the identity.
+    // them: the shard path, then the identity.
     let mut args = html[start..].split('"');
     let shard = args.nth(1).expect(html);
     let identity = args.nth(1).expect(html);
@@ -102,23 +112,23 @@ fn last_signal_id(html: &str) -> &str {
     &html[start..end]
 }
 
-/// Sends a JSON request through the router, which installs its identity.
-async fn endpoint(shard: &'static impl Shard, identity: &str, body: Body) -> Response {
-    let route = ShardRoute::new(shard);
+/// Requests a shard render at its served URL and supplies its invocation
+/// identity through the request header.
+async fn endpoint(shard: &'static impl Route, identity: &str, body: Body) -> Response {
     let request = http::Request::builder()
         .method("POST")
-        .uri(route.path().as_str())
+        .uri(shard.path().to_matchit_path().as_ref())
         .header("content-type", "application/json")
         .header(IDENTITY_HEADER, identity)
         .body(body)
         .unwrap();
-    Router::builder().route(route).build().handle(request).await
+    Router::builder().route(shard).build().handle(request).await
 }
 
 /// Renders `shard` through its endpoint at `identity`, carrying the JSON
 /// array `args` of arguments and the JSON object `signals` of signal values.
 async fn rerender_with(
-    shard: &'static impl Shard,
+    shard: &'static impl Route,
     identity: &str,
     args: &str,
     signals: &str,
@@ -182,7 +192,7 @@ async fn a_signal_argument_is_read_inline_and_rebuilt_from_its_value() {
         .unwrap()
         .render(cx);
     let (shard, identity) = scope_marker(&inline);
-    assert_eq!(shard, by_signal.id().as_str(), "{inline}");
+    assert_eq!(shard, by_signal.path().as_str(), "{inline}");
     assert!(inline.contains("<p>shoes</p>"), "{inline}");
     // The tracked read inside the shard depends on the caller's signal.
     let id = last_signal_id(&inline);
@@ -258,7 +268,7 @@ async fn a_rerender_derives_the_same_signal_id_as_the_inline_render() {
     let cx = &Cx::default().keyed("host");
     let inline = view! { cx => host() }.single().await.unwrap().render(cx);
     let (shard, identity) = scope_marker(&inline);
-    assert_eq!(shard, stateful.id().as_str(), "{inline}");
+    assert_eq!(shard, stateful.path().as_str(), "{inline}");
 
     let rerendered = rerender(identity, "{}").await;
 
@@ -295,6 +305,49 @@ async fn a_rerender_at_another_identity_derives_another_signal_id() {
         last_signal_id(&inline),
         "{inline}\n{rerendered}"
     );
+}
+
+#[tokio::test]
+async fn a_shard_without_a_path_is_served_below_the_runtime_prefix() {
+    let path = stateful.path().as_str();
+    let tail = path.strip_prefix("/_topcoat/runtime/shards/").expect(path);
+    assert_eq!(tail.len(), 32, "{path}");
+    assert!(tail.bytes().all(|b| b.is_ascii_hexdigit()), "{path}");
+    assert_ne!(stateful.path(), by_signal.path());
+}
+
+#[tokio::test]
+async fn a_shard_with_a_path_is_served_there_and_names_it_in_its_marker() {
+    assert_eq!(at_path.path().as_str(), "/search/results");
+
+    let cx = &Cx::default();
+    let inline = view! { cx => at_path(query: String::from("shoes")) }
+        .single()
+        .await
+        .unwrap()
+        .render(cx);
+    let (shard, identity) = scope_marker(&inline);
+    assert_eq!(shard, "/search/results", "{inline}");
+
+    let rerendered = rerender_with(&at_path, identity, r#"["boots"]"#, "{}").await;
+    assert!(rerendered.contains("<p>boots</p>"), "{rerendered}");
+}
+
+#[tokio::test]
+async fn a_grouped_path_names_the_served_url_in_its_marker() {
+    let cx = &Cx::default();
+    let inline = view! { cx => grouped(query: String::from("shoes")) }
+        .single()
+        .await
+        .unwrap()
+        .render(cx);
+    let (shard, identity) = scope_marker(&inline);
+    // The router strips the group from the URL it serves, so the browser
+    // must request the stripped form.
+    assert_eq!(shard, "/grouped", "{inline}");
+
+    let rerendered = rerender_with(&grouped, identity, r#"["boots"]"#, "{}").await;
+    assert!(rerendered.contains("<p>boots</p>"), "{rerendered}");
 }
 
 #[tokio::test]

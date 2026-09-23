@@ -7,13 +7,10 @@ import type { Scope } from "../scope";
 import type { SignalId } from "../signal-registry";
 import { RenderUnit } from "./unit";
 
-/** The route a shard re-run is requested from, with the shard's id appended. */
-export const SHARD_ROUTE_PREFIX = "/_topcoat/runtime/shards";
-
 /**
- * A shard: a region delimited by `<!-- ::topcoat::shard::start/end -->`
- * comments whose content is re-fetched from the shard's route with its
- * computed arguments whenever one of its inputs changes.
+ * A region bounded by shard start and end comments. When an input changes,
+ * it requests new content from the endpoint with the current arguments and
+ * signal values.
  */
 export class ShardUnit extends RenderUnit {
 	protected readonly label = "Shard";
@@ -28,14 +25,15 @@ export class ShardUnit extends RenderUnit {
 	constructor(
 		parent: Scope,
 		runtime: Runtime,
-		readonly shard: string,
+		/** The request URL for shard renders, with route groups removed. */
+		readonly path: string,
 		readonly identity: string,
 		exprs: string[],
 		readonly startNode: Comment,
 	) {
 		super(parent, runtime);
 		this.computes = exprs.map((js, index) =>
-			compile(js, `shard ${shard} argument ${index + 1}`),
+			compile(js, `shard ${path} argument ${index + 1}`),
 		);
 	}
 
@@ -57,7 +55,7 @@ export class ShardUnit extends RenderUnit {
 			args: this.computes.map((compute) => dehydrate(compute(context))),
 			signals: this.contentScope.collectSignalValues(),
 		}));
-		return fetch(`${SHARD_ROUTE_PREFIX}/${this.shard}`, {
+		return fetch(this.path, {
 			method: "POST",
 			headers: {
 				"Content-Type": "application/json",

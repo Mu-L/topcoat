@@ -1,14 +1,15 @@
 use topcoat_core::{context::Cx, identity::Identity};
 use topcoat_view::{NodeViewParts, PartsWriter, ViewHandle};
 
-use crate::{Js, ShardId};
+use crate::Js;
 
 pub struct ShardScope {
     /// The identity of the shard invocation, which names the scope in its
     /// markers and which the browser sends back with a re-render request so
     /// the shard body derives the same identities as the inline render.
     identity: Identity,
-    shard_id: ShardId,
+    /// The request URL, with route groups removed and `/` for the root.
+    url: &'static str,
     exprs: Vec<Js>,
     placeholder: ViewHandle,
 }
@@ -18,13 +19,13 @@ impl ShardScope {
     #[must_use]
     pub fn new(
         identity: Identity,
-        shard_id: ShardId,
+        url: &'static str,
         exprs: Vec<Js>,
         placeholder: ViewHandle,
     ) -> Self {
         Self {
             identity,
-            shard_id,
+            url,
             exprs,
             placeholder,
         }
@@ -33,12 +34,11 @@ impl ShardScope {
 
 impl NodeViewParts for ShardScope {
     fn into_view_parts(self, cx: &Cx, parts: &mut PartsWriter<'_>) {
-        let shard_id = self.shard_id.as_str();
         let identity = serde_json::to_string(&self.identity.to_string()).unwrap();
 
-        // <!-- ::topcoat::shard::start("<shard id>", "<identity>", ["<js>", ...]) -->
+        // <!-- ::topcoat::shard::start("<url>", "<identity>", ["<js>", ...]) -->
         //
-        // The browser runtime derives the shard's route from its id. The
+        // The browser runtime posts re-render requests to the URL. The
         // identity is stable across renders, so a re-render of the enclosing
         // content produces the same markers and the browser can keep them.
         // Each parameter's JavaScript source is wrapped in a quoted string.
@@ -48,7 +48,7 @@ impl NodeViewParts for ShardScope {
         parts.push_comment(|comment| {
             comment
                 .push_promoted_str_unescaped(&"::topcoat::shard::start(")
-                .push_string_unescaped(serde_json::to_string(shard_id).unwrap())
+                .push_string_unescaped(serde_json::to_string(self.url).unwrap())
                 .push_promoted_str_unescaped(&", ")
                 .push_string_unescaped(identity.clone())
                 .push_promoted_str_unescaped(&", [");
