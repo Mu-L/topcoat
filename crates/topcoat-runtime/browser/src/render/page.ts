@@ -9,6 +9,7 @@ import type { Runtime } from "../runtime";
 import type { Scope } from "../scope";
 import type { SignalId } from "../signal-registry";
 import { Connection, type ConnectionTarget } from "./connection";
+import { newRender } from "./frames";
 import { RUNTIME_HEADER } from "./request";
 import { RenderUnit } from "./unit";
 
@@ -82,12 +83,13 @@ export class PageUnit extends RenderUnit implements ConnectionTarget {
 			(event) => {
 				const { detail } = event as CustomEvent<DevRuntimeDetail>;
 				detail.runtime = {
-					request: (signal) => this.request(signal),
+					// The dev client reads the response as a document.
+					request: (signal) => this.request(signal, "text/html"),
 					replace: (update) => {
 						this.replace((scope, adoptable) => {
 							update();
 							this.runtime.hydrate(document, null, null, scope, adoptable);
-						});
+						}, newRender());
 					},
 				};
 			},
@@ -95,7 +97,7 @@ export class PageUnit extends RenderUnit implements ConnectionTarget {
 		);
 	}
 
-	protected request(signal: AbortSignal): Promise<Response> {
+	protected request(signal: AbortSignal, accept: string): Promise<Response> {
 		const signals = this.collectSignals();
 		// The runtime header asks the server to rerun this URL as a GET
 		// with the supplied signal values.
@@ -103,6 +105,7 @@ export class PageUnit extends RenderUnit implements ConnectionTarget {
 			method: "POST",
 			cache: "no-store",
 			headers: {
+				Accept: accept,
 				"Content-Type": "application/json",
 				[RUNTIME_HEADER]: "true",
 			},

@@ -4,6 +4,12 @@ import type { Effect } from "../reactivity";
 import type { Runtime } from "../runtime";
 import { Scope } from "../scope";
 import type { SignalId } from "../signal-registry";
+import {
+	applyFrame,
+	FRAMES_MEDIA_TYPE,
+	newRender,
+	type RenderToken,
+} from "./frames";
 import { RenderRequest } from "./request";
 
 /**
@@ -60,8 +66,14 @@ export abstract class RenderUnit {
 	 */
 	protected abstract readInputs(): void;
 
-	/** Requests the unit's content from the server with its current inputs. */
-	protected abstract request(signal: AbortSignal): Promise<Response>;
+	/**
+	 * Requests the unit's content from the server with its current inputs,
+	 * accepting a response of the `accept` media type.
+	 */
+	protected abstract request(
+		signal: AbortSignal,
+		accept: string,
+	): Promise<Response>;
 
 	/**
 	 * Parses `html` into the nodes the content becomes, or returns `null` to
@@ -113,11 +125,16 @@ export abstract class RenderUnit {
 		}
 	}
 
-	/** Re-runs this unit immediately with its current inputs. */
+	/**
+	 * Re-runs this unit immediately with its current inputs. The response
+	 * arrives as frames: a snapshot replacing the content, then a swap for
+	 * each later update of a live region.
+	 */
 	refresh(): Promise<void> {
+		const render = newRender();
 		return this.requestController.run(
-			(signal) => this.request(signal),
-			(html) => this.replaceContent(html),
+			(signal) => this.request(signal, FRAMES_MEDIA_TYPE),
+			(frame) => applyFrame(this, frame, this.label, render),
 			this.label,
 		);
 	}
@@ -128,13 +145,17 @@ export abstract class RenderUnit {
 	 * Disposes the old effects and listeners before updating the DOM, then
 	 * hydrates the result. Existing signal values take precedence over new
 	 * declarations, preserving changes made while the request was pending.
-	 * Signals absent from the new content are deleted.
+	 * Signals absent from the new content are deleted. The new content
+	 * belongs to `render`.
 	 */
-	replaceContent(html: string): void {
+	replaceContent(html: string, render: RenderToken): void {
 		if (this.isDisposed) return;
 		const nodes = this.prepare(html);
 		if (nodes === null) return;
-		this.replace((scope, orphans) => this.insert(nodes, scope, orphans));
+		this.replace(
+			(scope, orphans) => this.insert(nodes, scope, orphans),
+			render,
+		);
 	}
 
 	/**
@@ -142,12 +163,15 @@ export abstract class RenderUnit {
 	 * Releases the old content's resources and preserves signals declared
 	 * again in the replacement.
 	 *
-	 * Ignores updates for regions that are no longer in the current content.
+	 * Ignores updates for regions that are no longer in the current content,
+	 * and for regions a different render produced: a nested unit that has
+	 * re-rendered on its own owns its regions until this unit renders again.
 	 */
-	applySwap(id: string, html: string): void {
+	applySwap(id: string, html: string, render: RenderToken | null): void {
 		if (this.isDisposed) return;
 		const region = this.contentScope.findRegion(id);
 		if (region === undefined || region.end === null) return;
+		if (region.scope.render !== render) return;
 		const parent = region.start.parentNode;
 		if (parent === null) return;
 		const nodes = parseChildren(parent, html);
@@ -172,15 +196,19 @@ export abstract class RenderUnit {
 		region.scope.unit?.resubscribe();
 	}
 
-	/** Rebuilds the content's resources around a DOM update. */
+	/**
+	 * Rebuilds the content's resources around a DOM update, making the
+	 * result the content of `render`.
+	 */
 	protected replace(
 		insert: (scope: Scope, orphans: Set<SignalId>) => void,
+		render: RenderToken,
 	): void {
 		if (this.isDisposed) return;
 		this.requestController.cancel();
 
 		const orphans = this.contentScope.release();
-		this.contentScope = new Scope(this.lifetime, this.runtime, this);
+		this.contentScope = new Scope(this.lifetime, this.runtime, this, render);
 		insert(this.contentScope, orphans);
 		for (const id of orphans) this.runtime.registry.delete(id);
 
