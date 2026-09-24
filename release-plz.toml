@@ -179,6 +179,7 @@ version_group = "topcoat"
 [[package]]
 name = "topcoat-runtime-coherence"
 release = false
+publish = false
 
 [[package]]
 name = "topcoat-runtime-grammar"
