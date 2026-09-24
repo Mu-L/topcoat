@@ -7,7 +7,7 @@ use std::{
 };
 
 use topcoat_core::{
-    context::{AppContext, Cx, try_request_context, with_identity},
+    context::{AppContext, ContextValues, Cx, RequestContext, try_request_context, with_identity},
     error::Result,
 };
 
@@ -38,6 +38,9 @@ use crate::{
 /// # Ok(())
 /// # }
 /// ```
+///
+/// Clones share the same routing tables, so cloning is cheap.
+#[derive(Clone)]
 pub struct Router {
     /// The routing tables, shared with every request context this router
     /// creates.
@@ -68,7 +71,28 @@ impl Router {
     /// while processing the request becomes a `500 Internal Server Error`
     /// response.
     pub async fn handle(&self, request: Request) -> Response {
-        let mut future = pin!(self.handle_inner(request));
+        self.handle_with(request, RequestContext::new()).await
+    }
+
+    /// Handles a request with additional values in its request context.
+    ///
+    /// Works like [`handle`](Self::handle). Pass a tuple of values or a
+    /// [`RequestContext`]. Routes and layers can read these values with
+    /// [`request_context`](topcoat_core::context::request_context).
+    ///
+    /// Each request and internal rewrite gets a fresh context containing
+    /// these values. A rewrite can replace a value by supplying another
+    /// of the same type. The router's own values, such as request parts
+    /// and path parameters, always take precedence.
+    ///
+    /// A route or layer can call this to handle another request. The new
+    /// request has its own context, with only the values explicitly passed
+    /// here. Its response is returned to the caller.
+    pub async fn handle_with<V>(&self, request: Request, values: V) -> Response
+    where
+        V: ContextValues,
+    {
+        let mut future = pin!(self.handle_inner(request, RewriteChain::carrying(values)));
 
         poll_fn(|cx| {
             // The whole request and its context are discarded after a panic,
@@ -82,21 +106,20 @@ impl Router {
         .await
     }
 
-    /// Handles one request inside the panic isolation boundary.
-    async fn handle_inner(&self, request: Request) -> Response {
+    /// Handles a request using the context values in `chain`.
+    /// The caller catches panics from this future.
+    async fn handle_inner(&self, request: Request, mut chain: RewriteChain) -> Response {
         let inner = &*self.inner;
         // Resolve the client's address once from the original request,
         // before any rewrite can replace its headers.
         let client_ip = ClientIp(inner.trusted_proxies.resolve(&request));
         let (mut parts, mut body) = request.into_parts();
         let original = OriginalParts(Arc::new(parts.clone()));
-        let mut chain = RewriteChain::default();
 
         let (cx, result) = loop {
-            // Every dispatch starts from a fresh context, so a rewrite drops
-            // whatever the discarded dispatch registered or queued. Only the
-            // values carried by rewrites come along, and the router's own
-            // values are installed after them so they take precedence.
+            // Rewrites start with a fresh context. Keep only the values
+            // passed by the caller or a rewrite, and discard any other
+            // request state. Add the router's values last so they win.
             let cx = Cx::new(Arc::clone(&inner.app_context))
                 .with_many(chain.context().clone())
                 .with_many((
@@ -209,6 +232,34 @@ pub(crate) struct Matched {
     /// The route serving the request, or `None` when the path matched but no
     /// route accepts the method (a 405).
     route: Option<RouteIndex>,
+}
+
+/// Returns the router handling this request.
+///
+/// This is a cheap clone of the router. A route or layer can use it to
+/// [`handle`](Router::handle) another request. That request gets a fresh
+/// context, and its response is returned to the caller.
+///
+/// # Panics
+///
+/// Panics if the context does not belong to a router request.
+#[must_use]
+#[track_caller]
+pub fn router(cx: &Cx) -> Router {
+    match try_router(cx) {
+        Some(router) => router,
+        None => panic!("the request was not dispatched by a router"),
+    }
+}
+
+/// Returns the router handling this request, or `None` if the context does
+/// not belong to a router request.
+#[must_use]
+pub fn try_router(cx: &Cx) -> Option<Router> {
+    let inner = try_request_context::<Arc<RouterInner>>(cx)?;
+    Some(Router {
+        inner: Arc::clone(inner),
+    })
 }
 
 /// Reads the router and dispatch record off a matched request's context.
@@ -957,6 +1008,110 @@ mod tests {
         let (status, _, body) = send(&router, Method::GET, "/start");
         assert_eq!(status, StatusCode::OK);
         assert_eq!(&body[..], b"second");
+    }
+
+    /// Sends a request with context values and reads its full response.
+    fn send_with(
+        router: &Router,
+        method: Method,
+        path: &str,
+        values: impl ContextValues,
+    ) -> (StatusCode, HeaderMap, Bytes) {
+        let response = block_on(router.handle_with(request(method, path), values));
+        let (parts, body) = response.into_parts();
+        let bytes = block_on(to_bytes(body, usize::MAX)).unwrap();
+        (parts.status, parts.headers, bytes)
+    }
+
+    #[test]
+    fn a_seeded_dispatch_hands_its_values_to_the_route() {
+        let router = RouterBuilder::new()
+            .route(RouteFn::new(
+                Method::GET,
+                path("/carried-again"),
+                echo_carried,
+            ))
+            .build();
+
+        let (status, _, body) =
+            send_with(&router, Method::GET, "/carried-again", (Carried("seeded"),));
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(&body[..], b"seeded");
+
+        // A separate request must not inherit these values.
+        let (_, _, body) = send(&router, Method::GET, "/carried-again");
+        assert_eq!(&body[..], b"none");
+    }
+
+    #[test]
+    fn seeded_values_survive_rewrites_and_yield_to_values_a_rewrite_carries() {
+        let router = RouterBuilder::new()
+            .route(RouteFn::new(Method::GET, path("/old"), rewrite_with_value))
+            .route(RouteFn::new(Method::GET, path("/carried"), rewrite_onward))
+            .route(RouteFn::new(
+                Method::GET,
+                path("/carried-again"),
+                echo_carried,
+            ))
+            .build();
+
+        // Rewrites preserve values unless they explicitly replace them.
+        let (_, _, body) = send_with(&router, Method::GET, "/carried", (Carried("seeded"),));
+        assert_eq!(&body[..], b"seeded");
+
+        // A new value of the same type overrides the original value.
+        let (_, _, body) = send_with(&router, Method::GET, "/old", (Carried("seeded"),));
+        assert_eq!(&body[..], b"handed over");
+    }
+
+    #[test]
+    fn the_routers_own_values_take_precedence_over_seeded_values() {
+        let router = RouterBuilder::new()
+            .route(RouteFn::new(Method::GET, path("/users/{id}"), echo_params))
+            .build();
+
+        // The matched path parameters must override the supplied empty ones.
+        let (_, _, body) = send_with(
+            &router,
+            Method::GET,
+            "/users/42",
+            (RawPathParams::default(),),
+        );
+        assert_eq!(&body[..], b"id=42");
+    }
+
+    #[test]
+    fn a_route_can_dispatch_an_independent_request_through_its_router() {
+        /// Sends context values to `/carried-again` and returns its body.
+        /// Checks that the nested request leaves this context unchanged.
+        fn nested(cx: &Cx, _body: Body) -> RouteFuture<'_> {
+            Box::pin(async move {
+                let response = router(cx)
+                    .handle_with(request(Method::GET, "/carried-again"), (Carried("nested"),))
+                    .await;
+                let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+                assert!(try_request_context::<Carried>(cx).is_none());
+                String::from_utf8(body.to_vec()).unwrap().into_response(cx)
+            })
+        }
+
+        let router = RouterBuilder::new()
+            .route(RouteFn::new(Method::GET, path("/outer"), nested))
+            .route(RouteFn::new(
+                Method::GET,
+                path("/carried-again"),
+                echo_carried,
+            ))
+            .build();
+
+        let (status, _, body) = send(&router, Method::GET, "/outer");
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(&body[..], b"nested");
+    }
+
+    #[test]
+    fn a_request_outside_a_router_has_no_router() {
+        assert!(try_router(&Cx::default()).is_none());
     }
 
     #[test]

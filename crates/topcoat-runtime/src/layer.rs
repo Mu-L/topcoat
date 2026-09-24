@@ -1,48 +1,41 @@
-use serde::Deserialize;
+mod rerun;
+#[cfg(not(target_family = "wasm"))]
+mod socket;
+
+pub use rerun::*;
 use topcoat_core::context::Cx;
-use topcoat_router::{
-    Body, HeaderName, HeaderValue, Layer, LayerFuture, Method, Next, Path,
-    content::Json,
-    error::rewrite,
-    header,
-    request::{FromRequest, headers, method, uri},
-};
+use topcoat_router::{Body, Layer, LayerFuture, Next, Path};
 
-use crate::SignalValues;
-
-/// The header used to request a page rerun.
+/// The WebSocket subprotocol for runtime connections.
 ///
-/// A `POST` with `X-Topcoat-Runtime: true` is handled by [`RuntimeLayer`].
-pub static RUNTIME_HEADER: HeaderName = HeaderName::from_static("x-topcoat-runtime");
+/// Request this subprotocol at a page's URL to open a connection through
+/// [`RuntimeLayer`]. The browser can then request renders and receive the
+/// page's content as frames. WebSocket connections require a native server.
+pub const RUNTIME_PROTOCOL: &str = "topcoat-runtime";
 
-/// The header value that identifies a page rerun.
-static RERUN: HeaderValue = HeaderValue::from_static("true");
-
-/// The document's current signal values, sent as the JSON body of a page rerun.
-#[derive(Debug, Deserialize)]
-struct PageRerunRequest {
-    #[serde(default)]
-    signals: SignalValues,
-}
-
-/// A [`Layer`] that reruns pages with signal values from the browser.
+/// A [`Layer`] that handles runtime requests at each page's URL.
 ///
-/// The browser sends a `POST` to the page's URL with
-/// `X-Topcoat-Runtime: true` and a JSON body containing the document's
-/// signal values. This layer rewrites the request to a `GET` at the same
-/// path and query. The page runs through its layouts and guards, and its
-/// signals resume from the supplied values.
+/// The browser can request a render in two ways:
 ///
-/// The rewritten request has an empty body. Its [`RUNTIME_HEADER`],
-/// `Content-Type`, and `Content-Length` headers are removed. Read the
-/// client's original method with
-/// [`original_method`](topcoat_router::request::original_method).
-/// Requests with another method or without `X-Topcoat-Runtime: true`
-/// pass through unchanged, including ordinary form submissions.
+/// - Send a `POST` with `X-Topcoat-Runtime: true` and the document's signal values as JSON. The
+///   layer rewrites this to a `GET` at the same path and query. The page, layouts, and guards run
+///   with the supplied signal values. The rewritten request has an empty body and no
+///   [`RUNTIME_HEADER`], `Content-Type`, or `Content-Length` headers. To read the original method,
+///   use [`original_method`](topcoat_router::request::original_method).
+/// - Open a WebSocket with the [`RUNTIME_PROTOCOL`] subprotocol. Each render request on this
+///   connection runs the page as a `GET`, using headers from the handshake and the signal values
+///   sent by the browser.
 ///
-/// [`RouterBuilderRuntimeExt::runtime`](crate::RouterBuilderRuntimeExt::runtime)
-/// registers this layer. Call it after registering your application's
-/// pathless layers so those layers receive the rewritten `GET`.
+/// WebSocket connections are supported on native servers. HTTP page reruns
+/// are also available on WebAssembly.
+///
+/// Other requests pass through unchanged, including form submissions and
+/// WebSocket requests that do not use the runtime subprotocol.
+///
+/// Register this layer with
+/// [`RouterBuilderRuntimeExt::runtime`](crate::RouterBuilderRuntimeExt::runtime).
+/// Call it after adding your application's pathless layers so they receive
+/// the rewritten `GET`.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct RuntimeLayer;
 
@@ -52,29 +45,13 @@ impl Layer for RuntimeLayer {
     }
 
     fn handle<'a>(&'a self, cx: &'a Cx, body: Body, next: Next<'a>) -> LayerFuture<'a> {
-        let marked = headers(cx).get(&RUNTIME_HEADER) == Some(&RERUN);
-        if *method(cx) != Method::POST || !marked {
-            return next.run(cx, body);
+        #[cfg(not(target_family = "wasm"))]
+        if socket::requested(cx) {
+            return Box::pin(socket::accept(cx, body));
         }
-        Box::pin(async move {
-            let Json(request) = Json::<PageRerunRequest>::from_request(cx, body).await?;
-
-            // Remove the rerun marker and body headers before dispatching
-            // the GET with an empty body.
-            let mut headers = headers(cx).clone();
-            headers.remove(&RUNTIME_HEADER);
-            headers.remove(header::CONTENT_TYPE);
-            headers.remove(header::CONTENT_LENGTH);
-
-            let uri = uri(cx);
-            let target = uri
-                .path_and_query()
-                .map_or(uri.path(), |path_and_query| path_and_query.as_str());
-            Err(rewrite(target, Body::empty())
-                .method(Method::GET)
-                .headers(headers)
-                .with(request.signals)
-                .into())
-        })
+        if rerun::requested(cx) {
+            return Box::pin(rerun::dispatch(cx, body));
+        }
+        next.run(cx, body)
     }
 }

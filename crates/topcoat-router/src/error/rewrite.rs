@@ -165,6 +165,17 @@ pub(crate) struct RewriteChain {
 }
 
 impl RewriteChain {
+    /// Starts a rewrite chain with context values for the first request
+    /// and any rewrites that follow.
+    pub(crate) fn carrying(values: impl ContextValues) -> Self {
+        let mut context = RequestContext::new();
+        values.install(&mut context);
+        Self {
+            visited: Vec::new(),
+            context,
+        }
+    }
+
     /// Returns the context values accumulated by earlier rewrites.
     pub(crate) fn context(&self) -> &RequestContext {
         &self.context

@@ -12,8 +12,23 @@ export type CommentMarker =
 			kind: "dep";
 			id: SignalId;
 	  }
+	| {
+			/**
+			 * Marks the enclosing page or shard as needing a connection.
+			 */
+			kind: "connect";
+	  }
 	| { kind: "expr-start"; js: string }
 	| { kind: "expr-end" }
+	| {
+			/**
+			 * Starts a live region. Each update replaces the content between
+			 * this marker and its matching end marker.
+			 */
+			kind: "region-start";
+			id: string;
+	  }
+	| { kind: "region-end"; id: string }
 	| {
 			kind: "shard-start";
 			/** The request URL for shard renders, with route groups removed. */
@@ -31,8 +46,11 @@ export type CommentMarker =
 
 const SIGNAL_RE = /^\s*::topcoat::signal\(([\s\S]*)\)\s*$/;
 const DEP_RE = /^\s*::topcoat::dep\("([0-9a-f]+)"\)\s*$/;
+const CONNECT_RE = /^\s*::topcoat::connect\s*$/;
 const EXPR_START_RE = /^\s*::topcoat::expr::start\("([^"]*)"\)\s*$/;
 const EXPR_END_RE = /^\s*::topcoat::expr::end\s*$/;
+const REGION_START_RE = /^\s*::topcoat::region::start\(([0-9a-f]+)\)\s*$/;
+const REGION_END_RE = /^\s*::topcoat::region::end\(([0-9a-f]+)\)\s*$/;
 const SHARD_START_RE =
 	/^\s*::topcoat::shard::start\(("[^"]*"), ("[^"]*"), (\[[\s\S]*\])\)\s*$/;
 const SHARD_END_RE = /^\s*::topcoat::shard::end\(("[^"]+")\)\s*$/;
@@ -65,6 +83,10 @@ export function parseComment(node: Comment): CommentMarker | null {
 		return { kind: "dep", id: dep[1] ?? "" };
 	}
 
+	if (CONNECT_RE.test(text)) {
+		return { kind: "connect" };
+	}
+
 	const exprStart = EXPR_START_RE.exec(text);
 	if (exprStart) {
 		const js = decodeHtml(exprStart[1] ?? "");
@@ -76,6 +98,16 @@ export function parseComment(node: Comment): CommentMarker | null {
 
 	if (EXPR_END_RE.test(text)) {
 		return { kind: "expr-end" };
+	}
+
+	const regionStart = REGION_START_RE.exec(text);
+	if (regionStart) {
+		return { kind: "region-start", id: regionStart[1] ?? "" };
+	}
+
+	const regionEnd = REGION_END_RE.exec(text);
+	if (regionEnd) {
+		return { kind: "region-end", id: regionEnd[1] ?? "" };
 	}
 
 	const start = SHARD_START_RE.exec(text);

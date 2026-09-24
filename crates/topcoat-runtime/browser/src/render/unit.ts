@@ -1,3 +1,6 @@
+import { morph } from "../../../../topcoat-core/browser/morph";
+import { parseChildren } from "../dom/fragment";
+import type { Effect } from "../reactivity";
 import type { Runtime } from "../runtime";
 import { Scope } from "../scope";
 import type { SignalId } from "../signal-registry";
@@ -16,13 +19,19 @@ export abstract class RenderUnit {
 	/** Names the unit in error messages. */
 	protected abstract readonly label: string;
 	private readonly requestController: RenderRequest;
+	/** Watches the signals used by the current content. */
+	private watch: Effect | null = null;
+	/**
+	 * Prevents a render request while the effect updates its subscriptions.
+	 */
+	private subscribing = false;
 
 	constructor(
 		parent: Scope | null,
 		readonly runtime: Runtime,
 	) {
-		this.lifetime = new Scope(parent, runtime);
-		this.contentScope = new Scope(this.lifetime, runtime);
+		this.lifetime = new Scope(parent, runtime, this);
+		this.contentScope = new Scope(this.lifetime, runtime, this);
 		this.requestController = new RenderRequest(
 			this.lifetime.abortSignal,
 			(error) => runtime.reportError(error),
@@ -31,6 +40,14 @@ export abstract class RenderUnit {
 
 	get isDisposed(): boolean {
 		return this.lifetime.isDisposed;
+	}
+
+	/**
+	 * Checks whether the current content contains a connection marker.
+	 * Replacing the content can change the result.
+	 */
+	get requiresConnection(): boolean {
+		return this.contentScope.contentRequiresConnection();
 	}
 
 	dispose(): void {
@@ -70,16 +87,30 @@ export abstract class RenderUnit {
 	startWatching(): void {
 		const { registry } = this.runtime;
 		const scope = this.contentScope;
-		let first = true;
-		scope.effect(() => {
-			this.readInputs();
-			for (const id of scope.dependencies) registry.read(id);
-			if (first) {
-				first = false;
-				return;
-			}
-			this.requestController.schedule(() => this.refresh());
-		});
+		this.subscribing = true;
+		try {
+			this.watch = scope.effect(() => {
+				this.readInputs();
+				for (const id of scope.collectDependencies()) registry.read(id);
+				if (this.subscribing) return;
+				this.requestController.schedule(() => this.refresh());
+			});
+		} finally {
+			this.subscribing = false;
+		}
+	}
+
+	/**
+	 * Updates the effect's subscriptions after a swap changes which signals
+	 * the content depends on.
+	 */
+	resubscribe(): void {
+		this.subscribing = true;
+		try {
+			this.watch?.run();
+		} finally {
+			this.subscribing = false;
+		}
 	}
 
 	/** Re-runs this unit immediately with its current inputs. */
@@ -106,6 +137,41 @@ export abstract class RenderUnit {
 		this.replace((scope, orphans) => this.insert(nodes, scope, orphans));
 	}
 
+	/**
+	 * Replaces a live region's content and hydrates the new HTML.
+	 * Releases the old content's resources and preserves signals declared
+	 * again in the replacement.
+	 *
+	 * Ignores updates for regions that are no longer in the current content.
+	 */
+	applySwap(id: string, html: string): void {
+		if (this.isDisposed) return;
+		const region = this.contentScope.findRegion(id);
+		if (region === undefined || region.end === null) return;
+		const parent = region.start.parentNode;
+		if (parent === null) return;
+		const nodes = parseChildren(parent, html);
+
+		const orphans = region.scope.release();
+		region.scope = new Scope(
+			region.scope.parent,
+			this.runtime,
+			region.scope.unit,
+		);
+		morph(parent, region.start, region.end, nodes);
+		this.runtime.hydrate(
+			parent,
+			region.start,
+			region.end,
+			region.scope,
+			orphans,
+		);
+		for (const id of orphans) this.runtime.registry.delete(id);
+
+		// Update the owning unit's subscriptions, including for nested shards.
+		region.scope.unit?.resubscribe();
+	}
+
 	/** Rebuilds the content's resources around a DOM update. */
 	protected replace(
 		insert: (scope: Scope, orphans: Set<SignalId>) => void,
@@ -114,7 +180,7 @@ export abstract class RenderUnit {
 		this.requestController.cancel();
 
 		const orphans = this.contentScope.release();
-		this.contentScope = new Scope(this.lifetime, this.runtime);
+		this.contentScope = new Scope(this.lifetime, this.runtime, this);
 		insert(this.contentScope, orphans);
 		for (const id of orphans) this.runtime.registry.delete(id);
 
